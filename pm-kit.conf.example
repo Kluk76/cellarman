@@ -1,0 +1,37 @@
+# pm-kit.conf — instance configuration for the cellarman PM work-companion.
+# Copy next to your claude-brain/pm-kit/ directory as `pm-kit.conf`.
+# Sourced by pm-kit/doctor.sh and pm-kit/load-telemetry.sh AFTER they set:
+#   REPO_ROOT — the repo root (parent of claude-brain/)
+#   KIT_DIR   — the pm-kit/ directory
+# Paths here may use those variables. Zero project knowledge lives in the kit
+# scripts; everything instance-specific lives HERE.
+
+# The always-read index the PM loads on every invocation.
+PM_INDEX="$REPO_ROOT/claude-brain/agents/acme-pm-memory.md"
+
+# The lazy-loaded topic corpus.
+PM_MEMORY_DIR="$REPO_ROOT/claude-brain/agents/acme-pm-memory"
+
+# Agent definition: canonical (git-synced) vs installed (what Claude Code loads).
+PM_AGENT_CANONICAL="$REPO_ROOT/claude-brain/agents/acme-pm.md"
+PM_AGENT_INSTALLED="$HOME/.claude/agents/acme-pm.md"
+
+# Index byte budget. Start here for a new project; raise only when the HEALTHY
+# one-liner floor demands it (many mature arcs), never to accommodate
+# narration. The budget bounds DRIFT, not routing.
+PM_BUDGET_WARN=49152    # 48 KB
+PM_BUDGET_FAIL=65536    # 64 KB
+
+# A single index line longer than this is narration, not routing.
+PM_LINE_WARN=1536
+
+# More dated blockquotes ("> **YYYY-...") than this in the index = journal
+# entries accumulating where they don't belong.
+PM_DATED_WARN=3
+
+# Per-machine load-telemetry log (gitignore it — the dormancy signal is
+# per-developer by design).
+PM_LOAD_LOG="$REPO_ROOT/claude-brain/agents/.pm-load-log.tsv"
+
+# Days after which a topic file with zero recorded loads is flagged dormant.
+PM_DORMANT_DAYS=90
