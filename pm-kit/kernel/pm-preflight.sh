@@ -127,6 +127,29 @@ fi
 : "${DEV_ENV_VAR:=PM_DEV}"
 : "${RAILS_TSV:=${PF_RAILS_OUTPUT:-}}"
 : "${OWNERSHIP_PROSE:=${PF_OWNERSHIP_PROSE:-}}"
+: "${ALWAYS_PATHS:=${PF_ALWAYS_PATHS:-}}"
+
+# ── governance population — appended to PATHS on EVERY run, not opt-in per call ─
+# A caller's --paths names the build's OWN files; it has no reason to also name
+# the kit's governance surface (the ownership map, the claims ledger, the handoff
+# register) — yet every phase below that reads PATHS (P5 ownership, the shared-
+# tools check, P8 artefact-keyed rails) computes its verdict ONLY over what it
+# was given. An omitted governance path is not a partial measurement, it is a
+# DIFFERENT, weaker population: measured on the origin project, same build, same
+# worktree, verdict STOP vs WARN with the only delta being whether the ownership
+# map was IN --paths that run. PF_ALWAYS_PATHS closes that gap unconditionally so
+# no caller has to remember to pass it. Default empty ⇒ zero behavior change.
+# Dedup against caller-passed PATHS so an explicitly-passed governance path never
+# appears twice (harmless downstream, but a clean population is easier to audit).
+if [ -n "$ALWAYS_PATHS" ]; then
+  for AP in $ALWAYS_PATHS; do
+    FOUND=0
+    for EP in ${PATHS[@]+"${PATHS[@]}"}; do
+      [ "$EP" = "$AP" ] && FOUND=1 && break
+    done
+    [ "$FOUND" = 0 ] && PATHS[${#PATHS[@]}]="$AP"
+  done
+fi
 
 if [ -z "$UPSTREAM" ]; then
   echo "pm-preflight: STOP — profile '$CONF' does not define PF_REF_NAME (or UPSTREAM directly) — the shared-reference branch is undeclared." >&2

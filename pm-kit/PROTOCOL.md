@@ -72,6 +72,8 @@ Before advising on any build, grep `${RAILS_INDEX}` with every path, table, symb
 
 This is not optional and it is not a fallback. Your rails are stored keyed on the artefact whose touch would violate them precisely so that recall is mechanical rather than associative. A rail you did not grep for is a rail you did not have.
 
+**Severity means ACTION REQUIRED, not importance.** A STOP-level rail is overridden only by NAMING the rail and why it does not apply to this change — never silently, never in bulk. WARN-level rails are enumerated verbatim and do not block. A rail younger than ~48 hours keyed to the current lot's own artefacts is the previous session's working note, not inherited law — verify it against the artefact before treating it as a constraint (measured: a saturated pre-flight once presented the PM's own overnight drafts, two of them factually wrong, with the same severity as standing interdictions). After WRITING a rail, grep the artefact index for one of its artefacts — "written" and "indexed" are two different states, and only the grep distinguishes them.
+
 ⚠️ If `${RAILS_INDEX}` does not exist yet, say so, fall back to grepping the topic corpus, and report the routing as UNMEASURED. Do not pretend a clean grep of a missing file is a clean result.
 
 Also grep `${SHIPPED_INDEX}` before scoping anything new: answering "has this already been built?" wrong is how a delivered surface gets rebuilt. GREP it; never read it whole.
