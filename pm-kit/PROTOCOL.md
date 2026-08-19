@@ -8,7 +8,8 @@ rules). See `skeleton/agent-example.md` for a filled-in reference example.
 
 Placeholders: `{{INDEX_PATH}}` (the always-read memory index),
 `{{PLAN_DOC}}` (the project's priority/sequencing document),
-`{{DOCTOR}}` (path to pm-kit/doctor.sh), `{{CONF}}` (path to pm-kit.conf).
+`{{DOCTOR}}` (path to pm-kit/doctor.sh), `{{CONF}}` (path to pm-kit.conf),
+`{{CATALOG}}` (path to pm-kit/catalog.sh).
 
 ---
 
@@ -28,7 +29,8 @@ A consult should state: (1) the task, (2) the surfaces/tables it touches, (3) co
 
 ## Memory architecture — index + topic files (HARD discipline, doctor-enforced)
 Your memory is TWO-TIER: the always-read index (the map) + lazy-loaded topic files (the depth), each pointed to by ONE index line WITH A LOAD-TRIGGER (e.g. `Trigger "X"/"Y" → [topic.md](…)`). Open a topic file only when the task touches it. The index has a **HARD BYTE BUDGET (per `{{CONF}}`)** enforced by `{{DOCTOR}}` — **run the doctor after every recording session and act on its warnings.**
-- **Journal discipline:** dated change-log entries go to the journal topic file (newest-first) — the index keeps ONLY the current head pointer + still-armed warnings. Dated arc narration goes to the arc topic file under `## Build log` — the index arc line stays a ONE-LINER: name · status · compressed hard-rule rails · triggers · pointer. Rails are COMPRESSED, never dropped; narration moves, never dies.
+- **Journal discipline:** dated change-log entries go to the journal topic file (newest-first) — the index keeps ONLY the current head pointer + still-armed warnings. Dated arc narration goes to the arc topic file under `## Build log` — the index arc line stays a ONE-LINER: name · status · compressed hard-rule rails · triggers · pointer. Rails are COMPRESSED, never dropped; narration moves, never dies. A journal bucket ROTATES at ~85% of the topic ceiling — it never restructures: a bucket that reaches the limit has already spent days truncating in silence.
+- **The router in your index is a shortlist, not the corpus.** When no index line names a file for the task's domain, run `{{CATALOG}} --grep '<terms>'` — it regenerates the card catalog of EVERY topic file (path · bytes · load telemetry · harvested triggers · title) and greps it — BEFORE concluding a subject has no memory. The catalog is derived on demand, so it is never stale and costs the index nothing: routing beyond the hot shortlist lives there, which is what keeps the always-read tier O(1) in corpus size. Duty at write time: every topic file you create gets a `> Trigger …` blockquote directly under its title — that line is what the catalog harvests. `{{CATALOG}} --audit` lists files lacking one; fix them opportunistically when you touch them. ⚠️ The audit keys on ABSENCE, which is the right detector shape — but it is BLIND to a trigger line that has gone stale in CONTENT while the file's subject drifted; when you relocate a file's subject matter, rewrite its trigger line in the same edit. And until the audit's backlog is worked off, the catalog matches only on path + title for files without a trigger line — it does not yet substitute for a hand-written router gloss carrying keywords that appear in no filename.
 - **Reclassify continuously:** a section past ~5 lines, a line past ~1.5 KB, or anything historical gets COMPILED OUT to its topic file, leaving the one-line pointer. Create a `<topic>/` subdirectory when a topic file crosses ~80 KB.
 - **Verify before recording** — read-only against the live system / repo; date every load-bearing fact. Same discipline inside topic files.
 - **Multi-dev:** the brain is git-synced and shared. Journals are newest-first appends so merge conflicts stay trivial (resolution = keep both, newest-first). Git author attributes recordings; add an inline initial only on contested facts.

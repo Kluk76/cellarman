@@ -19,8 +19,24 @@ PM_AGENT_INSTALLED="$HOME/.claude/agents/acme-pm.md"
 # Index byte budget. Start here for a new project; raise only when the HEALTHY
 # one-liner floor demands it (many mature arcs), never to accommodate
 # narration. The budget bounds DRIFT, not routing.
+#
+# 🔴 CALIBRATE FAIL AGAINST THE TOKEN READ CAP, NOT AGAINST BYTES ALONE.
+# The constraint that actually binds is the reader's token cap (~25 000 tokens
+# for Claude Code's Read tool): an oversized index does not error — it returns
+# a successful-looking PARTIAL read, and what falls off is the BOTTOM of the
+# file (the routing table). Token density varies with composition and drifts
+# between passes (a dense, emoji-heavy corpus measured 0.53–0.54 tok/byte,
+# putting the one-pass wall at ~46 KB — under the default FAIL below). The
+# test, not the count: Read the index and check for a "lines X-Y of N" partial
+# banner; set PM_BUDGET_FAIL below the wall YOUR corpus measures. An index the
+# agent cannot read whole is a hard failure, not drift.
 PM_BUDGET_WARN=49152    # 48 KB
 PM_BUDGET_FAIL=65536    # 64 KB
+
+# Optional: where pm-kit/catalog.sh writes the derived card catalog of the
+# topic corpus (default: pm-catalog.tsv next to the index). Gitignore it —
+# it is derived on demand and embeds the per-machine load telemetry.
+# PM_CATALOG="$REPO_ROOT/claude-brain/agents/pm-catalog.tsv"
 
 # A single index line longer than this is narration, not routing.
 PM_LINE_WARN=1536
