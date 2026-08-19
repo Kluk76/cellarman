@@ -15,7 +15,8 @@
 #
 # Usage:
 #   catalog.sh                  regenerate, print catalog path + row count
-#   catalog.sh --grep <pat>     regenerate, then case-insensitive egrep the rows
+#   catalog.sh --grep <ere>     regenerate, then match rows — case-insensitive
+#                               POSIX ERE, substring; alternation = `a|b`
 #   catalog.sh --audit          regenerate, list files with NO harvestable
 #                               trigger line (poor routability — fix at source)
 #
@@ -88,9 +89,18 @@ case "$MODE" in
     grep)
         [ -n "$PATTERN" ] || { echo "pm-catalog: --grep needs a pattern" >&2; exit 1; }
         # Match on the routing columns only (path, triggers, title) so byte
-        # counts and dates can't produce false hits.
-        awk -F'\t' -v pat="$PATTERN" 'NR==1 { next }
-            tolower($1 FS $6 FS $7) ~ tolower(pat) {
+        # counts and dates can't produce false hits. The pattern is a POSIX
+        # ERE matched case-insensitively as a SUBSTRING — alternation is plain
+        # `chart|svg` (⛔ not `chart\|svg`: BRE-style escapes corrupt the
+        # match). It reaches awk via ENVIRON, not -v: -v reprocesses backslash
+        # escapes, printing a warning and then matching a DIFFERENT pattern
+        # than the one given — a plausible-looking result over the wrong
+        # population. Substring semantics mean short terms over-match
+        # ("chart" hits "charter") — anchor when it matters.
+        PM_CATALOG_PAT="$PATTERN" awk -F'\t' '
+            BEGIN { pat = tolower(ENVIRON["PM_CATALOG_PAT"]) }
+            NR==1 { next }
+            tolower($1 FS $6 FS $7) ~ pat {
                 printf "%s\t%sB\tloads:%s last:%s\n\t%s\n\t%s\n", $1, $2, $4, $5, $7, $6 }' \
             "$CATALOG"
         ;;
