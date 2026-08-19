@@ -51,3 +51,36 @@ PM_LOAD_LOG="$REPO_ROOT/claude-brain/agents/.pm-load-log.tsv"
 
 # Days after which a topic file with zero recorded loads is flagged dormant.
 PM_DORMANT_DAYS=90
+
+# Size past which a single topic file is doing a DIRECTORY's job and should be
+# split into per-subtopic files + a small pointer index.
+#
+# This threshold can exist in doctrine and be enforced by nobody — the index
+# budget above measures the INDEX alone, so the topic corpus can drift
+# unwatched for a long time. It surfaces only when someone manually measures a
+# topic file and finds it far past the threshold. Unlike the index budget this
+# is WARN only: an oversized topic file costs nothing per consult (it is
+# lazy-loaded) — it costs when you must read or edit it whole. Hence no FAIL
+# tier.
+PM_TOPIC_WARN=81920    # 80 KB
+
+# Verbatim pre-compaction snapshots of the index. They are a safety net, not a
+# store: git already holds every one of them (`git show <sha>:<index path>`),
+# so past a handful they are pure duplication that no other check can see —
+# the topic-size check above weighs the index alone, and the orphan check
+# never calls them orphans because the archive README references them.
+# Unset PM_ARCHIVE_DIR to skip the check entirely.
+PM_ARCHIVE_DIR="$PM_MEMORY_DIR/index-relocated-detail"
+PM_ARCHIVE_GLOB="index-verbatim-*.md"
+PM_ARCHIVE_MAX=3
+
+# ── Skill mirror (optional) ─────────────────────────────────────────────────
+# Uncomment if your project publishes the LIVE Claude Code skill store into a
+# repo-tracked mirror via a one-directional publish/sync step (copy live →
+# repo, never merge). In that shape, an edit made directly to the MIRROR is
+# invisible work: the next publish silently overwrites it from live, and the
+# loss appears only as a net-deletion hunk buried inside a batch of additions.
+# The tell is DIRECTION, not difference: mirror content that live does not
+# have is the signal, not a byte-for-byte diff.
+# PM_SKILLS_LIVE="$HOME/.claude/skills"
+# PM_SKILLS_MIRROR="$REPO_ROOT/claude-brain/skills"
