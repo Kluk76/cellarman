@@ -230,6 +230,27 @@ else
   ok dirty "worktree clean"
 fi
 
+# A HOOK CANNOT DETECT ITS OWN ABSENCE. The pre-commit gates a repo ships only
+# run in a clone that opted in with `git config core.hooksPath <dir>`. Measured
+# 2026-09-14 on a second dev's clone: the setting was EMPTY (rc=1) while every
+# gate already existed in the repo — that clone had been committing with NO
+# guard, silently, and nothing anywhere said so: not at commit time, not at
+# pre-flight, not at deploy. This is the only phase positioned to notice, and
+# it is exactly the kind of check that must live OUTSIDE the mechanism it
+# audits. It only WARNS, and it never sets the config itself: the setting
+# covers EVERY worktree of that clone, a parallel session's checkout included,
+# so flipping it is an operator gesture to announce — not something a tool
+# does on someone's behalf.
+: "${HOOKS_DIR:=${PF_HOOKS_PATH:-.githooks}}"
+if [ -d "$REPO_ROOT/$HOOKS_DIR" ]; then
+  HOOKS_PATH="$(git config --get core.hooksPath 2>/dev/null || true)"
+  if [ "$HOOKS_PATH" != "$HOOKS_DIR" ]; then
+    warn hooks "core.hooksPath is '${HOOKS_PATH:-<unset>}', not $HOOKS_DIR — this clone commits with NO pre-commit gate. Fix once per clone, and ANNOUNCE it (it covers every worktree): git config core.hooksPath $HOOKS_DIR"
+  else
+    ok hooks "core.hooksPath=$HOOKS_DIR"
+  fi
+fi
+
 # ── P2. Migration queue — three-way: disk ↔ shared reference ↔ deploy target ────
 # The migration runner applies the ENTIRE pending lot in lexical filename order,
 # and a deploy makes the other dev's committed-but-unapplied migrations

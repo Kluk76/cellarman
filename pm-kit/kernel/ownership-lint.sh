@@ -115,6 +115,13 @@ fi
 : "${SINCE:=${PF_OWNERSHIP_SINCE:-}}"
 : "${UPSTREAM:=${PF_REF_NAME:-}}"
 : "${DEV_ENV_VAR:=PM_DEV}"
+# A claim carries a dev INITIAL, which names a CORRIDOR — never a session.
+# Several agent sessions of the SAME dev can hold one shared clone at once, so
+# the initial is NECESSARY but never SUFFICIENT to conclude "this claim is
+# mine". SESSION_ENV_VAR names the env var holding the session id; the first 8
+# hex chars of it, behind SESSION_PREFIX, form the claim's 7th field.
+: "${SESSION_ENV_VAR:=${PF_SESSION_ENV_VAR:-CLAUDE_CODE_SESSION_ID}}"
+: "${SESSION_PREFIX:=${PF_SESSION_PREFIX:-}}"
 : "${RATIFY_TOKEN:=${PF_RATIFY_TOKEN:-RATIFIED:}}"
 : "${RATIFY_ACTION:=${PF_RATIFY_ACTION:-RECORD}}"
 # Lanes whose pattern starts with this prefix name a DATA surface, not a path,
@@ -130,6 +137,12 @@ case "$CLAIMS" in ""|/*) ;; *) CLAIMS="$REPO_ROOT/$CLAIMS" ;; esac
 if [ -z "$DEV" ]; then
   eval "DEV=\"\${${DEV_ENV_VAR}:-}\""
 fi
+
+# Unknown session stays EMPTY on purpose: the rule below treats empty as the
+# LOUD case. Never default it to something that could match a claim.
+CUR_SESSION=""
+eval "_SESS_RAW=\"\${${SESSION_ENV_VAR}:-}\""
+[ -n "$_SESS_RAW" ] && CUR_SESSION="${SESSION_PREFIX}${_SESS_RAW:0:8}"
 
 say() { [ "$QUIET" = 1 ] || printf '%s\n' "$*"; }
 
@@ -468,7 +481,7 @@ if [ -f "$CLAIMS" ]; then
   ' "$CLAIMS")"
 
   for P in $PATHS; do
-    while IFS="$(printf '\t')" read -r STATE OPENED CDEV SLUG CGLOB NOTE; do
+    while IFS="$(printf '\t')" read -r STATE OPENED CDEV SLUG CGLOB NOTE CSESSION; do
       case "${STATE:-}" in ''|'#'*|closed) continue ;; esac
       [ -z "${CGLOB:-}" ] && continue
       # CGLOB is a SPACE-separated list of globs (CLAIMS.tsv's own documented
@@ -482,7 +495,24 @@ if [ -f "$CLAIMS" ]; then
         # shellcheck disable=SC2254
         case "$P" in $CG)
           if [ "$CDEV" = "$DEV" ]; then
-            say "  ok   $P — under YOUR open claim '$SLUG' (since $OPENED)"
+            # Matching the dev initial proves the CORRIDOR, not the session.
+            # Three outcomes, and the default (unknown on either side) is the
+            # LOUD one — a vocabulary this open must fail closed, or the FALSE
+            # GREEN this replaces walks straight back in the day a corpus of
+            # 6-field claims is migrated.
+            if [ -z "$CUR_SESSION" ]; then
+              say "  ⚠    $P — claim '$SLUG' by dev '$CDEV' (since $OPENED): CURRENT SESSION UNKNOWN (\$$SESSION_ENV_VAR unset/empty) — cannot tell whether this claim is yours. Ask who holds it."
+              bump 1
+            elif [ -z "${CSESSION:-}" ]; then
+              say "  ⚠    $P — claim '$SLUG' by dev '$CDEV' (since $OPENED): SESSION UNKNOWN in the claim (7th field absent) — a dev initial is NECESSARY, never SUFFICIENT. Ask who holds it."
+              bump 1
+            elif [ "$CSESSION" = "$CUR_SESSION" ]; then
+              say "  ok   $P — under YOUR open claim '$SLUG' (since $OPENED)"
+            else
+              say "  ⛔   $P — under an open claim by ANOTHER SESSION of the same dev ('$CSESSION', '$SLUG', since $OPENED) — ask who holds it; never conclude \"that one is mine\"."
+              say "       Two sessions of the same dev building the same surface is how a feature ships twice. Talk first."
+              bump 2
+            fi
           else
             say "  ⛔   $P — under an OPEN CLAIM by '$CDEV': '$SLUG' since $OPENED. ${NOTE:-}"
             say "       Two sessions building the same surface is how a feature ships twice. Talk first."

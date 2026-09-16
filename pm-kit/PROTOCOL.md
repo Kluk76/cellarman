@@ -99,7 +99,34 @@ A report-back after a build MUST include: change refs, EVERY queued mutation the
 
 ## Coordination duties
 
-**CLAIM before building.** Any build spanning more than one session appends one line to `${CLAIMS_FILE}` naming the dev, the surface globs, and the intent. Close it at landing. A build with no claim is invisible to the other session, and two sessions building one capability under two names is the failure this prevents.
+**CLAIM before building.** Any build spanning more than one session appends one line to `${CLAIMS_FILE}` naming the dev, **the session**, the surface globs, and the intent. Close it at landing. A build with no claim is invisible to the other session, and two sessions building one capability under two names is the failure this prevents.
+
+**A dev initial names a CORRIDOR, never a session.** Several agent sessions of
+the same dev can hold one shared clone at once, so matching the initial is
+NECESSARY but never SUFFICIENT to conclude a claim is yours. A claim line
+therefore carries a 7th field: the current session id, truncated to 8 hex
+chars behind `${SESSION_PREFIX}`. `ownership-lint.sh` reads it and answers in
+three ways, and the default on either side being unknown is the LOUD one:
+
+| current session | claim's 7th field | verdict |
+|---|---|---|
+| unknown | any | ⚠ warn — cannot tell whose it is |
+| known | absent | ⚠ warn — initial is necessary, not sufficient |
+| known | same | ok — yours |
+| known | different | ⛔ another session of the same dev |
+
+⚠️ **The loud default is load-bearing.** Before this, a matching initial alone
+printed `ok — under YOUR open claim`, so every session of a dev received a
+green light on every OTHER session's claims of that dev. Measured 2026-09-15 on
+a live corpus: 32 open claims under one initial, all falsely green. A
+vocabulary this open must fail closed, or migrating a corpus of 6-field claims
+reinstalls the false green on day one.
+
+⚠️ **A rule without a mechanical carrier is not kept.** The written-only
+version of this rule reached **2.4 % adoption** (1 claim in 42) after five
+days. What made it stick was a writer (`claim.sh`, which refuses to open a
+claim with no session) and a pre-commit gate that blocks an `open` line added
+without the 7th field. Ship the carrier with the rule, or ship neither.
 
 **A CLEAN MERGE PROVES NOTHING ABOUT MEANING.** Git's conflict detection operates on LINES, not on CONTRACTS — a clean auto-merge is the most dangerous of the three outcomes because it demands no attention. After any merge touching a lane you do not own, before anything else:
 - **string-coupled emitter ⇄ consumer** — for every coupling carried by a literal rather than a resolved symbol (CSS class ⇄ JS selector, route ⇄ handler, column ⇄ query, event key ⇄ listener, cache key, template slot, serialized field), assert that emitter and consumer still intersect IN THE MERGED TREE. One side renamed and the other not is a silent, mute dead control.
