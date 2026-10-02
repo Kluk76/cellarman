@@ -141,6 +141,7 @@ fi
 : "${SCRAPPING:=${PF_DEBT_FILE:-}}"
 : "${DOCTOR:=${PM_DOCTOR:-}}"
 : "${SSH_TARGET:=${PF_TARGET_HOST:-}}"
+: "${QUEUE_TARGET_CMD:=${PF_QUEUE_TARGET:-}}"
 : "${VPS_PATH:=${PF_TARGET_PATH:-}}"
 : "${DB_SCHEMA:=${PF_DB_SCHEMA:-}}"
 : "${ARB_WARN_DAYS:=${PF_ARB_WARN_DAYS:-3}}"
@@ -476,12 +477,23 @@ else
   # The target leg: n/a when the project declares no deploy target (a permanent
   # WARN about something that does not exist is wallpaper); otherwise it stays
   # UNMEASURED-with-a-WARN until --probe-db is given.
-  if [ -z "$SSH_TARGET" ]; then
+  # The target leg. PF_QUEUE_TARGET, when set, is a COMMAND that prints the queue
+  # file names present on the target (the profile owns how the target is reached);
+  # otherwise the generic fallback is `ssh $PF_TARGET_HOST ls $PF_TARGET_PATH/<queue>`.
+  # Declared by either one; neither declared is n/a.
+  if [ -z "$SSH_TARGET" ] && [ -z "$QUEUE_TARGET_CMD" ]; then
     ok mig-vps "n/a (no deploy target declared)"
   elif [ "$DO_PROBE" = 1 ]; then
-    if VPSLS=$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$SSH_TARGET" \
-          "ls $VPS_PATH/$MIG_DIR/*.sql 2>/dev/null | xargs -n1 basename" 2>/dev/null); then
-      printf '%s\n' "$VPSLS" | sort > "$TMP/vps"
+    if [ -n "$QUEUE_TARGET_CMD" ]; then
+      TARGET_WHO="the PF_QUEUE_TARGET command"
+      VPSLS=$(eval "$QUEUE_TARGET_CMD" 2>/dev/null); VRC=$?
+    else
+      TARGET_WHO="ssh to $SSH_TARGET"
+      VPSLS=$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$SSH_TARGET" \
+          "ls $VPS_PATH/$MIG_DIR/*.sql 2>/dev/null | xargs -n1 basename; true" 2>/dev/null); VRC=$?
+    fi
+    if [ "$VRC" = 0 ]; then
+      printf '%s\n' "$VPSLS" | sed 's|.*/||' | grep '\.sql$' | sort > "$TMP/vps"
       UP_NOT_VPS=$(comm -13 "$TMP/vps" "$TMP/upstream")
       VPS_NOT_UP=$(comm -23 "$TMP/vps" "$TMP/upstream")
       if [ -n "$UP_NOT_VPS" ]; then
@@ -494,7 +506,7 @@ else
       fi
       [ -z "$UP_NOT_VPS$VPS_NOT_UP" ] && ok mig-vps "deploy target == $UPSTREAM for $MIG_DIR/"
     else
-      unmeasured mig-vps "could not reach $SSH_TARGET — target side of the three-way diff NOT measured"
+      unmeasured mig-vps "could not reach the deploy target ($TARGET_WHO failed, exit $VRC) — target side of the three-way diff NOT measured"
     fi
   else
     unmeasured mig-vps "--probe-db not given: the deploy-target leg is not measured ('Pending 0' would be an unproven claim)"
@@ -891,7 +903,9 @@ else
     RAIL_HITS=0
     while IFS= read -r RCAND; do
       [ -z "$RCAND" ] && continue
-      awk -F'\t' -v c="$RCAND" '$1==c' "$RAILS_TSV" > "$TMP/rails-hit" 2>/dev/null
+      # ENVIRON, not `awk -v c=...`: -v interprets backslash escapes, so a path
+      # containing a backslash would be rewritten and never match its own row.
+      RAILS_CAND="$RCAND" awk -F'\t' '$1==ENVIRON["RAILS_CAND"]' "$RAILS_TSV" > "$TMP/rails-hit" 2>/dev/null
       [ -s "$TMP/rails-hit" ] || continue
       while IFS="$(printf '\t')" read -r ART SEV RAIL SRC ORIG; do
         [ -z "$ART" ] && continue

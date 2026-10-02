@@ -341,7 +341,7 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
   && has 'ok   namespace.*n/a (no queue declared)' "$OUTT" && has 'ok   slug-drift.*n/a (no queue declared)' "$OUTT" \
   && lacks 'no migration on' "$OUTT" && lacks 'no unpushed migration' "$OUTT"; }; check A16 "empty PF_QUEUE_DIR: every queue phase says n/a and measures nothing" $?
 mk_proj p16b remote
-prof_set PF_TARGET_HOST '""'
+prof_set PF_TARGET_HOST '""'; prof_set PF_QUEUE_TARGET '""'
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 { has 'ok   mig-vps.*n/a (no deploy target declared)' "$OUTT" && lacks 'WARN mig-vps' "$OUTT" && has 'ok   mig-upstream.*no migration on' "$OUTT"; }; check 1.6 "empty PF_TARGET_HOST: the target leg is n/a, the queue is still measured" $?
 mk_proj p16c remote
@@ -797,6 +797,77 @@ run bash "$KITREL/lint-claims-session.sh"
 { [ "$RC" = 0 ] && has 'OK'; }; check A13 "the claims gate accepts the canonical form (rc=$RC)" $?
 git reset -q -- claude-brain/CLAIMS.tsv; git checkout -q -- claude-brain/CLAIMS.tsv
 { ! grep -q '^PF_CLAIMS_FORMAT="state' "$C/profiles/example.conf"; }; check A13 "the stale 6-field PF_CLAIMS_FORMAT line is gone from the example profile" $?
+
+###############################################################################
+# A9 — leftovers: UTF-8-safe truncation, backslash paths, PF_QUEUE_TARGET,
+#      solo-mode doctor, `--` path terminator
+###############################################################################
+# (a) a rail truncated at PF_RAILS_TRUNCATE is cut on a character boundary in every awk
+mk_proj pa9a remote
+EACC="$(printf '\303\251')"; LONGE=""; for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do LONGE="$LONGE$EACC"; done
+printf -- '- 🔴 `ref_users` %s\n' "$LONGE" >> "$INDEX"
+if command -v iconv >/dev/null 2>&1; then
+  mkdir -p "$SB/awk9g" "$SB/awk9m"
+  command -v gawk >/dev/null 2>&1 && ln -sf "$(command -v gawk)" "$SB/awk9g/awk"
+  command -v mawk >/dev/null 2>&1 && ln -sf "$(command -v mawk)" "$SB/awk9m/awk"
+  for T in 19 20 21 22; do
+    prof_set PF_RAILS_TRUNCATE "\"$T\""
+    for cfg in gawk-C mawk gawk-utf8; do
+      case $cfg in
+        gawk-C)    [ -x "$SB/awk9g/awk" ] || continue; run env PATH="$SB/awk9g:$PATH" LC_ALL=C bash "$KITREL/kernel/rails-index.sh" ;;
+        mawk)      [ -x "$SB/awk9m/awk" ] || continue; run env PATH="$SB/awk9m:$PATH" bash "$KITREL/kernel/rails-index.sh" ;;
+        gawk-utf8) [ -x "$SB/awk9g/awk" ] && [ -n "$UTF8_LOC" ] || continue; run env PATH="$SB/awk9g:$PATH" LC_ALL="$UTF8_LOC" bash "$KITREL/kernel/rails-index.sh" ;;
+      esac
+      iconv -f UTF-8 -t UTF-8 "$KITREL/state/RAILS-BY-ARTEFACT.tsv" > /dev/null 2>&1; irc=$?
+      { [ "$irc" = 0 ]; }; check A9a "truncation at $T ($cfg): the table is valid UTF-8 (iconv rc=$irc)" $?
+    done
+  done
+else
+  skip A9a "iconv not installed"
+fi
+# (b) a path containing a backslash matches its own rail row
+mk_proj pa9b remote
+printf -- '- 🔴 `src/a\\tb.php` is sealed\n' >> "$INDEX"
+run bash "$KITREL/kernel/rails-index.sh"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths 'src/a\tb.php'; strip
+{ has 'WARN rails.*src/a.tb.php' "$OUTT"; }; check A9b "a backslash in a path is not rewritten by awk -v (the rail is found)" $?
+# (c) PF_QUEUE_TARGET is the target leg
+mk_proj pa9c remote
+mkdir -p db/migrations
+printf 'SELECT 1;\n' > db/migrations/202601010000_a_one.sql; printf 'SELECT 2;\n' > db/migrations/202601010001_a_two.sql
+commit_all "two queued changes"
+prof_set PF_TARGET_HOST '"nobody@host.invalid"'
+prof_set PF_QUEUE_TARGET "'printf \"202601010000_a_one.sql\\n202601010001_a_two.sql\\n\"'"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
+{ has 'ok   mig-vps.*deploy target == ' "$OUTT"; }; check A9c "PF_QUEUE_TARGET is used, not an ssh to PF_TARGET_HOST (target == reference)" $?
+prof_set PF_QUEUE_TARGET "'printf \"202601010000_a_one.sql\\n\"'"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
+{ has 'WARN mig-vps.*not yet on the deploy target' "$OUTT" && has '202601010001_a_two.sql' "$OUTT"; }; check A9c "a queued change missing from the target is named" $?
+prof_set PF_QUEUE_TARGET "'printf \"202601010000_a_one.sql\\n202601010001_a_two.sql\\n202601010099_a_rogue.sql\\n\"'"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
+{ [ "$RC" = 2 ] && has 'STOP mig-vps.*on the deploy target and NOT on' "$OUTT" && has 'rogue' "$OUTT"; }; check A9c "a change on the target that git does not have STOPs (rc=$RC)" $?
+prof_set PF_QUEUE_TARGET "'false'"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
+{ has 'UNMEASURED mig-vps.*PF_QUEUE_TARGET command failed' "$OUTT"; }; check A9c "a failing PF_QUEUE_TARGET command is UNMEASURED" $?
+prof_set PF_QUEUE_TARGET '""'; prof_set PF_TARGET_HOST '""'
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
+{ has 'ok   mig-vps.*n/a (no deploy target declared)' "$OUTT"; }; check A9c "neither declared: n/a" $?
+# (d) doctor: a repository with no remote has nothing to fetch
+mk_proj pa9d noremote
+run bash "$KITREL/doctor.sh"
+{ lacks 'never fetched' && has 'fetch age: n/a (no remote configured'; }; check A9d "doctor on a no-remote repo: fetch age is n/a, not 'never fetched'" $?
+mk_proj pa9d2 remote
+rm -f .git/FETCH_HEAD
+run bash "$KITREL/doctor.sh"
+{ has 'never fetched'; }; check A9d "doctor on a repo WITH a remote that never fetched still says so" $?
+# (e) `--` ends the option list
+mk_proj pa9e remote
+printf -- '- 🔴 `--odd.php` is sealed\n' >> "$INDEX"
+run bash "$KITREL/kernel/rails-index.sh"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths -- --odd.php; strip
+{ has 'WARN rails.*--odd.php' "$OUTT" && lacks 'unknown arg' "$OUTT"; }; check A9e "--paths -- --odd.php carries a path that starts with --" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths src/x.php -- --odd.php; strip
+{ has 'WARN rails.*--odd.php' "$OUTT"; }; check A9e "paths before and after the -- are both read" $?
 
 ###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"

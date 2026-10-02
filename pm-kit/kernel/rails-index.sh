@@ -260,6 +260,24 @@ function classify(c) {
   return ""
 }
 
+# cut_chars(s, n) — the first n characters of s, never ending inside a UTF-8
+# character. Under gawk in a UTF-8 locale substr() already counts characters; under
+# mawk or LC_ALL=C it counts BYTES, and a cut at byte n can leave the first bytes of
+# a multi-byte character, which is invalid UTF-8 in the output table. In byte mode
+# (detected by the length of the 4-byte badge) an incomplete trailing sequence is
+# dropped, so the cut lands on a character boundary in every awk and locale.
+function cut_chars(s, n,   cut, len, i, c, need) {
+  cut = substr(s, 1, n)
+  if (length(BADGE) == 1) return cut          # character mode: nothing to repair
+  len = length(cut); i = len
+  while (i > 0 && (substr(cut, i, 1) in CONTBYTE)) i--
+  if (i > 0 && (substr(cut, i, 1) in LEADLEN)) {
+    need = LEADLEN[substr(cut, i, 1)]
+    if (len - i + 1 < need) cut = substr(cut, 1, i - 1)
+  }
+  return cut
+}
+
 # head_prefix_ok(s) — TRUE iff s (everything in the record BEFORE a candidate
 # marker occurrence) reduces to nothing once leading whitespace, dashes,
 # asterisks (markdown bold-open) and a leading 🆕 badge are stripped, in any
@@ -375,7 +393,7 @@ function process_record(buf, head_fnr,
         rec_rows++
         rtext = txt
         gsub(/\t/, " ", rtext)
-        if (length(rtext) > TRUNC) rtext = substr(rtext, 1, TRUNC) "…"
+        if (length(rtext) > TRUNC) rtext = cut_chars(rtext, TRUNC) "…"
         printf "%s\t%s\t%s\t%s#%d\tdirect\n", content, lvl, rtext, SRC, head_fnr
         total_rows++
 
@@ -436,6 +454,10 @@ BEGIN {
   # mawk and LC_ALL=C (a rail was STOP under one and INFO under another).
   BADGE = "🆕"
   SEP = " · "
+  for (b = 128; b < 192; b++) CONTBYTE[sprintf("%c", b)] = 1
+  for (b = 192; b < 224; b++) LEADLEN[sprintf("%c", b)] = 2
+  for (b = 224; b < 240; b++) LEADLEN[sprintf("%c", b)] = 3
+  for (b = 240; b < 248; b++) LEADLEN[sprintf("%c", b)] = 4
   nmarkers = 0
   MARKRE = ""
   while ((getline mline < MARKFILE) > 0) {

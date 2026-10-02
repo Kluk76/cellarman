@@ -326,7 +326,11 @@ if git -C "$REPO_ROOT" rev-parse --git-dir >/dev/null 2>&1; then
         [ "${AHEAD:-0}" = 0 ] && [ "${BEHIND:-0}" = 0 ] && ok "MEMORY paths in sync with upstream (code surfaces NOT checked here — run bin/pm-preflight.sh)"
     fi
     FETCH_HEAD="$(git -C "$REPO_ROOT" rev-parse --absolute-git-dir 2>/dev/null || git -C "$REPO_ROOT" rev-parse --git-dir)/FETCH_HEAD"   # bare --git-dir is CWD-relative: wrong file when invoked from outside the repo
-    if [ -f "$FETCH_HEAD" ]; then
+    if [ -z "$(git -C "$REPO_ROOT" remote 2>/dev/null)" ]; then
+        # Solo mode: with no remote there is nothing to fetch, so "never fetched" is
+        # not a finding about this project.
+        ok "fetch age: n/a (no remote configured: single-clone mode)"
+    elif [ -f "$FETCH_HEAD" ]; then
         # `stat -c` is GNU-only: on BSD/macOS it prints "illegal option -- c" and
         # SUBSTITUTES NOTHING, so the arithmetic became `( 1785343838 - ) / 3600`
         # — a shell syntax error the script printed and then walked past, still
