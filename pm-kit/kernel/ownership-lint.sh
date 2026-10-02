@@ -37,17 +37,26 @@
 #   maquillé en autorisation.
 #
 # EXIT
-#   0  every path is in the acting dev's own lane, unclaimed by the other
-#   1  at least one path is in a shared/contested/unmapped lane, or a
-#      cross-concern write was RATIFIED (see RECORDED: lines)
-#   2  at least one path is in a frozen lane, or in another dev's lane at a
-#      concern that dev doesn't own and no ratification was found, or under an
-#      open claim held by the other dev
+#   0  every path is in the acting dev's own lane and unclaimed by anyone else
+#      (also: no paths were given, so there was nothing to judge)
+#   1  JUDGED, with something to name: at least one path is in a shared,
+#      contested or unmapped lane; or a cross-concern write was RATIFIED (see
+#      RECORDED: lines); or a claim is stale, of unknown session, or the claims
+#      file is absent. The printed lines say which. Never read the verdict from
+#      the code alone.
+#   2  JUDGED, a STOP: at least one path is in a frozen lane, or in another
+#      dev's lane at a concern that dev does not own and no ratification was
+#      found, or under a live claim held by the other dev or another session of
+#      the same dev
+#   3  DID NOT RUN, nothing was judged: no profile, a bad argument, no ownership
+#      map, or the acting dev unknown (the dev variable is unset and --dev was
+#      not given). Printed on stderr even with --quiet. 0, 1 and 2 are verdicts;
+#      any other code means there is none.
 #
 # USAGE
 #   ownership-lint.sh [--map F] [--claims F] [--dev <id>] [--ratified TEXT] [--claim-exempt "P1 P2"] [--quiet] [--refresh] PATH...
 #   ownership-lint.sh --refresh            # regenerate the EVIDENCE column from git
-#   RATIFIED="RATIFIED: k+l, 2026-08-06" ownership-lint.sh PATH...
+#   RATIFIED="RATIFIED: <who>, <when>" ownership-lint.sh PATH...
 #   git diff --name-only | xargs ownership-lint.sh
 
 # Started by another shell (zsh, sh)? These scripts use bash-only expansions
@@ -76,16 +85,16 @@ CLAIM_EXEMPT=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --conf)    [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --conf needs a value" >&2; exit 64; }; CONF="$2"; shift 2 ;;
-    --map)     [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --map needs a value" >&2; exit 64; }; MAP="$2"; shift 2 ;;
-    --claims)  [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --claims needs a value" >&2; exit 64; }; CLAIMS="$2"; shift 2 ;;
-    --dev)     [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --dev needs a value" >&2; exit 64; }; DEV="$2"; shift 2 ;;
-    --ratified) [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --ratified needs a value" >&2; exit 64; }; RATIFIED_FLAG="$2"; shift 2 ;;
-    --claim-exempt) [ $# -ge 2 ] || { echo "ownership-lint: --claim-exempt needs a value" >&2; exit 64; }; CLAIM_EXEMPT="$2"; shift 2 ;;
+    --conf)    [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --conf needs a value" >&2; exit 3; }; CONF="$2"; shift 2 ;;
+    --map)     [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --map needs a value" >&2; exit 3; }; MAP="$2"; shift 2 ;;
+    --claims)  [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --claims needs a value" >&2; exit 3; }; CLAIMS="$2"; shift 2 ;;
+    --dev)     [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --dev needs a value" >&2; exit 3; }; DEV="$2"; shift 2 ;;
+    --ratified) [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --ratified needs a value" >&2; exit 3; }; RATIFIED_FLAG="$2"; shift 2 ;;
+    --claim-exempt) [ $# -ge 2 ] || { echo "ownership-lint: --claim-exempt needs a value" >&2; exit 3; }; CLAIM_EXEMPT="$2"; shift 2 ;;
     --quiet)   QUIET=1; shift ;;
     --refresh) REFRESH=1; shift ;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
-    -*)        echo "ownership-lint: unknown flag $1" >&2; exit 64 ;;
+    -h|--help) awk 'NR==1{next} /^#/{print;next} {exit}' "$0"; exit 0 ;;
+    -*)        echo "ownership-lint: unknown flag $1" >&2; exit 3 ;;
     *)         PATHS[${#PATHS[@]}]="$1"; shift ;;
   esac
 done
@@ -108,12 +117,12 @@ if [ -z "$CONF" ]; then
 fi
 
 if [ -n "$CONF" ] && [ ! -f "$CONF" ]; then
-  echo "ownership-lint: STOP — --conf '$CONF' does not exist (a profile named explicitly is never replaced by discovery)." >&2
-  exit 2
+  echo "ownership-lint: NOT RUN — --conf '$CONF' does not exist (a profile named explicitly is never replaced by discovery)." >&2
+  exit 3
 fi
 if [ -z "$CONF" ] || [ ! -f "$CONF" ]; then
-  echo "ownership-lint: STOP — no profile found (--conf, \$PM_PROFILE, a single claude-brain/pm-kit/profiles/*.conf, or a single kernel/*.conf). This kernel carries no team/lane vocabulary of its own." >&2
-  exit 2
+  echo "ownership-lint: NOT RUN — no profile found (--conf, \$PM_PROFILE, a single claude-brain/pm-kit/profiles/*.conf, or a single kernel/*.conf). This kernel carries no team/lane vocabulary of its own." >&2
+  exit 3
 fi
 
 # shellcheck disable=SC1090
@@ -167,9 +176,9 @@ say() { [ "$QUIET" = 1 ] || printf '%s\n' "$*"; }
 if [ "$REFRESH" = 1 ]; then
   if [ -z "${DEVS:-}" ] || [ -z "$UPSTREAM" ]; then
     echo "ownership-lint: --refresh needs the profile to define DEVS and PF_REF_NAME — UNMEASURED" >&2
-    exit 64
+    exit 3
   fi
-  cd "$REPO_ROOT" || exit 64
+  cd "$REPO_ROOT" || exit 3
   printf '# ownership evidence — regenerated %s, commits since %s on %s\n' \
          "$(date -u '+%Y-%m-%d')" "$SINCE" "$UPSTREAM"
   HDR="# lane	declared"
@@ -236,7 +245,7 @@ if [ "$REFRESH" = 1 ]; then
   exit 0
 fi
 
-[ -f "$MAP" ] || { say "ownership-lint: no map at $MAP"; exit 1; }
+[ -f "$MAP" ] || { echo "ownership-lint: NOT RUN — no ownership map at ${MAP:-<PF_OWNERSHIP_MAP is not set>}; lanes cannot be judged" >&2; exit 3; }
 
 # A map line carrying a literal '{' reads like brace-expansion but isn't one:
 # the matcher below is shell CASE-pattern matching, where '{' and '}' are
@@ -250,7 +259,7 @@ if [ -n "$BRACE_LINES" ]; then
 fi
 
 [ ${#PATHS[@]} -gt 0 ] || { say "ownership-lint: no paths given"; exit 0; }
-[ -n "$DEV" ] || { say "ownership-lint: \$$DEV_ENV_VAR unset and --dev not given — cannot judge lanes"; exit 1; }
+[ -n "$DEV" ] || { echo "ownership-lint: NOT RUN — \$$DEV_ENV_VAR is unset and --dev was not given; lanes cannot be judged" >&2; exit 3; }
 
 RC=0
 bump() { [ "$1" -gt "$RC" ] && RC="$1"; }

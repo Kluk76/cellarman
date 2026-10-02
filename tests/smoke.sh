@@ -141,17 +141,17 @@ mk_proj p14 remote
 run bash bin/pm-preflight.sh --no-fetch
 { lacks 'no profile found'; }; check 1.4 "the verbatim launcher finds the single profile (rc=$RC)" $?
 run bash bin/pm-preflight.sh --conf "$SB/does-not-exist.conf"
-{ [ "$RC" = 2 ] && has "--conf '$SB/does-not-exist.conf' does not exist" && lacks 'no profile found'; }; check 1.4 "a missing --conf path is named as missing (rc=$RC)" $?
+{ [ "$RC" = 3 ] && has "--conf '$SB/does-not-exist.conf' does not exist" && lacks 'no profile found'; }; check 1.4 "a missing --conf path is named as missing, exit 3 (rc=$RC)" $?
 run tmo bash "$KITREL/kernel/rails-index.sh" --conf "$SB/does-not-exist.conf"
-{ [ "$RC" = 2 ] && has 'does not exist'; }; check 1.4 "rails-index: missing --conf is named as missing (rc=$RC)" $?
+{ [ "$RC" = 3 ] && has 'does not exist'; }; check 1.4 "rails-index: missing --conf is named as missing, exit 3 (rc=$RC)" $?
 run tmo bash "$KITREL/catalog.sh" --grep
 { [ "$RC" = 64 ] && has 'needs a pattern'; }; check A11 "catalog --grep without a pattern: usage error, no hang (rc=$RC)" $?
 run tmo bash "$KITREL/kernel/pm-preflight.sh" --conf
-{ [ "$RC" = 64 ] && has 'needs a value' && lacks 'unbound'; }; check A11 "pm-preflight --conf without a value: usage error (rc=$RC)" $?
+{ [ "$RC" = 3 ] && has 'needs a value' && lacks 'unbound'; }; check A11 "pm-preflight --conf without a value: usage error, exit 3 (rc=$RC)" $?
 run tmo bash "$KITREL/kernel/ownership-lint.sh" --dev
-{ [ "$RC" = 64 ] && has 'needs a value' && lacks 'unbound'; }; check A11 "ownership-lint --dev without a value: usage error (rc=$RC)" $?
+{ [ "$RC" = 3 ] && has 'needs a value' && lacks 'unbound'; }; check A11 "ownership-lint --dev without a value: usage error, exit 3 (rc=$RC)" $?
 run tmo bash "$KITREL/kernel/rails-index.sh" --conf
-{ [ "$RC" = 64 ] && has 'needs a value' && lacks 'unbound'; }; check A11 "rails-index --conf without a value: usage error (rc=$RC)" $?
+{ [ "$RC" = 3 ] && has 'needs a value' && lacks 'unbound'; }; check A11 "rails-index --conf without a value: usage error, exit 3 (rc=$RC)" $?
 
 ###############################################################################
 # 1.12 / B3 — catalog: missing memory dir; load counts without `grep -P`
@@ -609,6 +609,45 @@ echo edit >> claude-brain/FROZEN.md
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 { [ "$RC" = 2 ] && has 'STOP ownership' "$OUTT" && has 'STOP rails' "$OUTT"; }; check amb-b "the same path DIRTY in the worktree is the build's own: real STOPs (rc=$RC)" $?
 git checkout -q -- claude-brain/FROZEN.md
+
+###############################################################################
+# A2 — exit 3 means "did not run"; 0/1/2 stay verdicts
+###############################################################################
+mk_proj pa2x remote
+run bash bin/pm-preflight.sh --bogus-flag
+{ [ "$RC" = 3 ] && has "unknown arg"; }; check A2x "pm-preflight: a bad argument did not run, exit 3 (rc=$RC)" $?
+rm -rf "$KITREL/profiles"
+run bash bin/pm-preflight.sh
+{ [ "$RC" = 3 ] && has 'NOT RUN' && has 'no profile found'; }; check A2x "pm-preflight: no profile did not run, exit 3, says NOT RUN (rc=$RC)" $?
+run bash "$KITREL/kernel/ownership-lint.sh" --dev a src/x
+{ [ "$RC" = 3 ] && has 'NOT RUN'; }; check A2x "ownership-lint: no profile did not run, exit 3 (rc=$RC)" $?
+run bash "$KITREL/kernel/rails-index.sh"
+{ [ "$RC" = 3 ] && has 'NOT RUN'; }; check A2x "rails-index: no profile did not run, exit 3 (rc=$RC)" $?
+mk_proj pa2y remote
+mk_toolpath "$SB/nocomm" $(for t in $COMMON_TOOLS; do [ "$t" = comm ] || printf '%s ' "$t"; done)
+run env PATH="$SB/nocomm" "$(command -v bash)" "$KITREL/kernel/pm-preflight.sh" --no-fetch
+{ [ "$RC" = 3 ] && has "NOT RUN — required tool 'comm'"; }; check A2x "pm-preflight: a missing tool did not run, exit 3 (rc=$RC)" $?
+mv "$KITREL/kernel/pm-preflight.sh" "$KITREL/kernel/pm-preflight.sh.away"
+run bash bin/pm-preflight.sh
+{ [ "$RC" = 3 ] && has 'NOT RUN — kernel not found'; }; check A2x "launcher: a missing kernel is exit 3, not the shell's 126/127 (rc=$RC)" $?
+mv "$KITREL/kernel/pm-preflight.sh.away" "$KITREL/kernel/pm-preflight.sh"
+printf 'own a logic src/*\n' > claude-brain/OWNERSHIP.map
+run bash "$KITREL/kernel/ownership-lint.sh" --dev a --map "$SB/no-such-map" src/x
+{ [ "$RC" = 3 ] && has 'NOT RUN — no ownership map'; }; check A2x "ownership-lint: no map is 'cannot judge', exit 3, not a shared-lane 1 (rc=$RC)" $?
+run bash "$KITREL/kernel/ownership-lint.sh" --quiet src/x
+{ [ "$RC" = 3 ] && has 'NOT RUN.*unset'; }; check A2x "ownership-lint --quiet: unknown dev still says so, exit 3 (rc=$RC)" $?
+printf '# state\topened\tdev\tslug\tglobs\tnote\tsession\n' > claude-brain/CLAIMS.tsv
+run bash "$KITREL/kernel/ownership-lint.sh" --dev a --quiet src/x
+{ [ "$RC" = 0 ]; }; check A2x "ownership-lint: an own-lane path is still exit 0 (rc=$RC)" $?
+# rails-index: expansion not declared at all is n/a (0); declared and unread is unmeasured (1)
+mk_proj pa2z remote
+printf -- '- 🔴 `ref_users` is read by two views\n' >> "$INDEX"
+prof_set PF_ARTEFACT_EXPAND '""'; prof_set PF_ARTEFACT_GRAPH_CACHE '""'
+run bash "$KITREL/kernel/rails-index.sh"; strip
+{ [ "$RC" = 0 ] && has 'expansion  *: n/a' "$OUTT" && lacks 'UNMEASURED' "$OUTT"; }; check A2x "rails-index: no view graph declared is n/a, exit 0 (rc=$RC)" $?
+prof_set PF_ARTEFACT_EXPAND "'echo declared'"
+run bash "$KITREL/kernel/rails-index.sh"; strip
+{ [ "$RC" = 1 ] && has 'UNMEASURED' "$OUTT"; }; check A2x "rails-index: a declared expansion with no cache stays unmeasured, exit 1 (rc=$RC)" $?
 
 ###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"

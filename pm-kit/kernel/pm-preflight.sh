@@ -10,7 +10,7 @@
 #   script evaluates them. It is the executable half of rails that otherwise
 #   exist only as words in a project's PM memory.
 #
-# DESIGN CONSTRAINTS (learned the hard way, see 00-audit.md §3)
+# DESIGN CONSTRAINTS (learned the hard way)
 #   - MUST run on macOS bash 3.2 as well as Linux bash 5. No associative arrays,
 #     no mapfile, no ${x,,}, no `date -Is`, no `grep -P`, no `readlink -f`.
 #     Empty arrays are always expanded as ${a[@]+"${a[@]}"}.
@@ -22,14 +22,24 @@
 #   0  clear
 #   1  warnings only — proceed, but the consult must name them
 #   2  STOP — the PM must not sequence the build until a human resolves it
+#   3  DID NOT RUN — nothing was measured: no profile, a bad argument, a missing
+#      tool (git/awk/sed/grep/find) or an unusable repo root. 0/1/2 are verdicts;
+#      any other code means no verdict exists. The launcher (bin/pm-preflight.sh)
+#      passes every code through and uses 3 for its own failure to find the kernel.
+#   Phases that run but cannot reach their target print an `unmeasured` line
+#   (counted separately in the summary). That keeps exit 1 unless the target is
+#   undeclared (then the phase prints n/a and nothing changes).
 #
 # USAGE
 #   pm-preflight.sh                                  # repo-wide pre-flight
 #   pm-preflight.sh --paths src/billing.php app/db.php
 #   pm-preflight.sh --migrations db/migrations/_draft/foo.sql
-#   pm-preflight.sh --probe-db                       # + live VPS/schema probes
+#   pm-preflight.sh --probe-db                       # + live deploy-target/schema probes
 #   pm-preflight.sh --no-fetch                       # skip network (offline)
 #   pm-preflight.sh --json                           # machine-readable summary
+#   pm-preflight.sh --paths -- --odd-name.php        # `--` ends the option list: every
+#                                                    # later word is a path, even if it
+#                                                    # starts with --
 #
 # PORTABILITY (this file carries ZERO project nouns — see profiles/*.conf)
 #   Repo root, in order:
@@ -46,12 +56,18 @@
 #        EXACTLY ONE match
 #     4. a *.conf sitting next to this script (kernel/*.conf) — used only if
 #        EXACTLY ONE match
-#   No profile found ⇒ STOP (exit 2). This tool has no meaning without one.
+#   No profile found ⇒ did not run (exit 3). This tool has no meaning without one.
 
 # Started by another shell (zsh, sh)? These scripts use bash-only expansions
 # (e.g. ${VAR:+-flag "$VAR"} word-splitting) — re-exec under bash, never degrade.
 [ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
 set -u
+
+# A missing tool means nothing below can be trusted: say so and do not run
+# (exit 3), rather than let each phase swallow its own command-not-found.
+for _t in git awk sed grep find mktemp sort comm; do
+  command -v "$_t" >/dev/null 2>&1 || { echo "pm-preflight: NOT RUN — required tool '$_t' not found on PATH" >&2; exit 3; }
+done
 
 # ── locate ──────────────────────────────────────────────────────────────────────
 KIT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -71,14 +87,15 @@ PATHS=(); MIGS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --conf)       [ $# -ge 2 ] && [ -n "$2" ] || { echo "pm-preflight: --conf needs a value" >&2; exit 64; }; CONF="$2"; shift 2 ;;
+    --conf)       [ $# -ge 2 ] && [ -n "$2" ] || { echo "pm-preflight: --conf needs a value" >&2; exit 3; }; CONF="$2"; shift 2 ;;
     --no-fetch)   DO_FETCH=0; shift ;;
     --probe-db)   DO_PROBE=1; shift ;;
     --json)       DO_JSON=1; shift ;;
     --paths)      shift; while [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; do PATHS[${#PATHS[@]}]="$1"; shift; done ;;
+    --)           shift; while [ $# -gt 0 ]; do PATHS[${#PATHS[@]}]="$1"; shift; done ;;
     --migrations) shift; while [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; do MIGS[${#MIGS[@]}]="$1"; shift; done ;;
-    -h|--help)    sed -n '2,40p' "$0"; exit 0 ;;
-    *) echo "pm-preflight: unknown arg '$1'" >&2; exit 64 ;;
+    -h|--help)    awk 'NR==1{next} /^#/{print;next} {exit}' "$0"; exit 0 ;;
+    *) echo "pm-preflight: unknown arg '$1'" >&2; exit 3 ;;
   esac
 done
 
@@ -100,12 +117,12 @@ if [ -z "$CONF" ]; then
 fi
 
 if [ -n "$CONF" ] && [ ! -f "$CONF" ]; then
-  echo "pm-preflight: STOP — --conf '$CONF' does not exist (a profile named explicitly is never replaced by discovery)." >&2
-  exit 2
+  echo "pm-preflight: NOT RUN — --conf '$CONF' does not exist (a profile named explicitly is never replaced by discovery)." >&2
+  exit 3
 fi
 if [ -z "$CONF" ] || [ ! -f "$CONF" ]; then
-  echo "pm-preflight: STOP — no profile found (--conf, \$PM_PROFILE, a single claude-brain/pm-kit/profiles/*.conf, or a single kernel/*.conf). This kernel carries no project nouns of its own and cannot run without one." >&2
-  exit 2
+  echo "pm-preflight: NOT RUN — no profile found (--conf, \$PM_PROFILE, a single claude-brain/pm-kit/profiles/*.conf, or a single kernel/*.conf). This kernel carries no project nouns of its own and cannot run without one." >&2
+  exit 3
 fi
 
 # shellcheck disable=SC1090
@@ -174,11 +191,11 @@ if [ -n "$ALWAYS_PATHS" ]; then
 fi
 
 if [ -z "$UPSTREAM" ]; then
-  echo "pm-preflight: STOP — profile '$CONF' does not define PF_REF_NAME (or UPSTREAM directly) — the shared-reference branch is undeclared." >&2
-  exit 2
+  echo "pm-preflight: NOT RUN — profile '$CONF' does not define PF_REF_NAME (or UPSTREAM directly) — the shared-reference branch is undeclared." >&2
+  exit 3
 fi
 
-cd "$REPO_ROOT" || { echo "pm-preflight: cannot cd $REPO_ROOT" >&2; exit 64; }
+cd "$REPO_ROOT" || { echo "pm-preflight: cannot cd $REPO_ROOT" >&2; exit 3; }
 
 # Propagate the resolved root/profile/dev-var so a spawned ownership-lint.sh
 # (P5 below) resolves the SAME profile deterministically, rather than
@@ -352,7 +369,7 @@ fi
 # measure that decides, in BOTH directions, is a diff.
 sec "P2 · migration queue"
 # mktemp -d: a predictable $TMPDIR/pmpf.$$ can be pre-created by someone else.
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/pmpf.XXXXXX")" || exit 64
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/pmpf.XXXXXX")" || exit 3
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 if [ -z "$MIG_DIR" ]; then

@@ -35,11 +35,19 @@
 #   Generated + gitignored — every clone rebuilds it; never a merge surface.
 #
 # EXIT CODES
-#   0  generated, expansion measured (cache used or freshly refreshed)
-#   1  generated, but expansion UNMEASURED (no cache, --refresh-graph not
-#      given, or the refresh probe failed) — direct rails are still correct,
-#      transitive (via:) rows are simply absent; said loudly, not silently
-#   2  STOP — could not generate at all (no profile, no PM index, bad state)
+#   0  generated, expansion measured (cache used or freshly refreshed), or
+#      expansion not declared at all (neither PF_ARTEFACT_EXPAND nor
+#      PF_ARTEFACT_GRAPH_CACHE is set: printed as n/a, there is nothing to measure)
+#   1  generated, but a DECLARED expansion is UNMEASURED (no cache,
+#      --refresh-graph not given, or the refresh probe failed) — direct rails
+#      are still correct, transitive (via:) rows are simply absent; said
+#      loudly, not silently
+#   2  STOP — a declared input is unreadable, so the table was NOT generated:
+#      a PF_RAILS_EXTRA_CORPUS pattern that matches no file, or no usable
+#      severity marker
+#   3  DID NOT RUN — no profile, a bad argument, a required profile variable
+#      missing, the index file absent, or the output directory not writable.
+#      0 and 1 are results; 2 is a finding; 3 means nothing was attempted.
 #
 # USAGE
 #   rails-index.sh                    # (re)generate from the cached graph, or
@@ -79,10 +87,10 @@ REFRESH_GRAPH=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --conf)           [ $# -ge 2 ] && [ -n "$2" ] || { echo "rails-index: --conf needs a value" >&2; exit 64; }; CONF="$2"; shift 2 ;;
+    --conf)           [ $# -ge 2 ] && [ -n "$2" ] || { echo "rails-index: --conf needs a value" >&2; exit 3; }; CONF="$2"; shift 2 ;;
     --refresh-graph)  REFRESH_GRAPH=1; shift ;;
-    -h|--help)        sed -n '2,45p' "$0"; exit 0 ;;
-    *) echo "rails-index: unknown arg '$1'" >&2; exit 64 ;;
+    -h|--help)        awk 'NR==1{next} /^#/{print;next} {exit}' "$0"; exit 0 ;;
+    *) echo "rails-index: unknown arg '$1'" >&2; exit 3 ;;
   esac
 done
 
@@ -104,12 +112,12 @@ if [ -z "$CONF" ]; then
 fi
 
 if [ -n "$CONF" ] && [ ! -f "$CONF" ]; then
-  echo "rails-index: STOP — --conf '$CONF' does not exist (a profile named explicitly is never replaced by discovery)." >&2
-  exit 2
+  echo "rails-index: NOT RUN — --conf '$CONF' does not exist (a profile named explicitly is never replaced by discovery)." >&2
+  exit 3
 fi
 if [ -z "$CONF" ] || [ ! -f "$CONF" ]; then
-  echo "rails-index: STOP — no profile found (--conf, \$PM_PROFILE, a single claude-brain/pm-kit/profiles/*.conf, or a single kernel/*.conf). This kernel carries no project nouns of its own and cannot run without one." >&2
-  exit 2
+  echo "rails-index: NOT RUN — no profile found (--conf, \$PM_PROFILE, a single claude-brain/pm-kit/profiles/*.conf, or a single kernel/*.conf). This kernel carries no project nouns of its own and cannot run without one." >&2
+  exit 3
 fi
 
 # shellcheck disable=SC1090
@@ -138,23 +146,23 @@ fi
 : "${MAX_ITER:=${PF_ARTEFACT_EXPAND_MAX_ITER:-25}}"
 
 if [ -z "$PM_INDEX_REL" ]; then
-  echo "rails-index: STOP — profile '$CONF' does not define PF_PM_INDEX — nothing names the corpus to mine." >&2
-  exit 2
+  echo "rails-index: NOT RUN — profile '$CONF' does not define PF_PM_INDEX — nothing names the corpus to mine." >&2
+  exit 3
 fi
 if [ -z "$TABLE_RE" ]; then
-  echo "rails-index: STOP — profile '$CONF' does not define PF_ARTEFACT_TABLE_RE." >&2
-  exit 2
+  echo "rails-index: NOT RUN — profile '$CONF' does not define PF_ARTEFACT_TABLE_RE." >&2
+  exit 3
 fi
 if [ -z "$SEVERITY_MARKERS" ]; then
-  echo "rails-index: STOP — profile '$CONF' does not define PF_SEVERITY_MARKERS." >&2
-  exit 2
+  echo "rails-index: NOT RUN — profile '$CONF' does not define PF_SEVERITY_MARKERS." >&2
+  exit 3
 fi
 if [ -z "$OUTPUT_REL" ]; then
-  echo "rails-index: STOP — profile '$CONF' does not define PF_RAILS_OUTPUT." >&2
-  exit 2
+  echo "rails-index: NOT RUN — profile '$CONF' does not define PF_RAILS_OUTPUT." >&2
+  exit 3
 fi
 
-cd "$REPO_ROOT" || { echo "rails-index: cannot cd $REPO_ROOT" >&2; exit 64; }
+cd "$REPO_ROOT" || { echo "rails-index: cannot cd $REPO_ROOT" >&2; exit 3; }
 
 PM_INDEX="$REPO_ROOT/$PM_INDEX_REL"
 OUTPUT="$REPO_ROOT/$OUTPUT_REL"
@@ -164,12 +172,12 @@ GRAPH_CACHE=""
 [ -n "$GRAPH_CACHE_REL" ] && GRAPH_CACHE="$REPO_ROOT/$GRAPH_CACHE_REL"
 
 if [ ! -f "$PM_INDEX" ]; then
-  echo "rails-index: STOP — PF_PM_INDEX names '$PM_INDEX_REL', which does not exist at $PM_INDEX." >&2
-  exit 2
+  echo "rails-index: NOT RUN — PF_PM_INDEX names '$PM_INDEX_REL', which does not exist at $PM_INDEX." >&2
+  exit 3
 fi
 
 # mktemp -d: a predictable $TMPDIR/rails-index.$$ can be pre-created by someone else.
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/rails-index.XXXXXX")" || exit 64
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/rails-index.XXXXXX")" || exit 3
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 # ── corpus list: the index, THEN every file PF_RAILS_EXTRA_CORPUS declares ───
@@ -503,6 +511,7 @@ BASE_ROWS=$(wc -l < "$TMP/base.tsv" | tr -d ' ')
 
 # ══ PHASE 2 — EXPANSION (transitive view closure) ══════════════════════════
 EXPANSION_MEASURED=0
+EXPANSION_DECLARED=1
 INHERITED_ROWS=0
 : > "$TMP/inherited.tsv"
 
@@ -512,7 +521,7 @@ if [ "$REFRESH_GRAPH" = 1 ]; then
   elif [ -z "$GRAPH_CACHE" ]; then
     echo "rails-index: WARN — --refresh-graph given but profile defines no PF_ARTEFACT_GRAPH_CACHE to store it in. Expansion UNMEASURED." >&2
   else
-    mkdir -p "$(dirname "$GRAPH_CACHE")" || exit 64
+    mkdir -p "$(dirname "$GRAPH_CACHE")" || exit 3
     if GRAPH_OUT=$(eval "$EXPAND_CMD" 2>"$TMP/graph.err") && [ -n "$GRAPH_OUT" ]; then
       printf '%s\n' "$GRAPH_OUT" > "$GRAPH_CACHE"
       echo "rails-index: refreshed graph cache — $(wc -l < "$GRAPH_CACHE" | tr -d ' ') edge(s) → $GRAPH_CACHE_REL" >&2
@@ -593,7 +602,8 @@ AWK_EOF
   else
     printf '\n\033[33m● UNMEASURED — the graph cache at %s holds 0 usable edges.\033[0m\n\n' "$GRAPH_CACHE_REL" >&2
   fi
-else
+elif [ -n "$EXPAND_CMD" ] || [ -n "$GRAPH_CACHE_REL" ]; then
+  # Declared, but nothing to read: a measurement that did not happen.
   printf '\n'
   if [ -n "$GRAPH_CACHE_REL" ]; then CACHE_WHERE=" at $GRAPH_CACHE_REL"; else CACHE_WHERE=" (PF_ARTEFACT_GRAPH_CACHE is not set)"; fi
   printf '\033[33m● UNMEASURED — no artefact-graph cache%s and --refresh-graph not given.\033[0m\n' "$CACHE_WHERE" >&2
@@ -601,10 +611,12 @@ else
   printf '  views that read it — transitive (via:) rows are absent, not zero-by-fact.\n' >&2
   printf '  Re-run with --refresh-graph to compute them.\n' >&2
   printf '\n' >&2
+else
+  EXPANSION_DECLARED=0
 fi
 
 # ══ WRITE OUTPUT (atomic) ═══════════════════════════════════════════════════
-mkdir -p "$(dirname "$OUTPUT")" || exit 64
+mkdir -p "$(dirname "$OUTPUT")" || exit 3
 sort -t "$(printf '\t')" -k1,1 -k2,2 "$TMP/base.tsv" "$TMP/inherited.tsv" > "$TMP/final.tsv"
 mv "$TMP/final.tsv" "$OUTPUT"
 
@@ -618,6 +630,9 @@ printf '  total rows           : %s\n' "$TOTAL_ROWS"
 printf '  distinct artefacts   : %s\n' "$DISTINCT_ARTEFACTS"
 if [ "$EXPANSION_MEASURED" = 1 ]; then
   printf '  expansion            : MEASURED (graph cache %s)\n' "$GRAPH_CACHE_REL"
+  exit 0
+elif [ "$EXPANSION_DECLARED" = 0 ]; then
+  printf '  expansion            : n/a (no view graph declared: PF_ARTEFACT_EXPAND and PF_ARTEFACT_GRAPH_CACHE are unset)\n'
   exit 0
 else
   printf '  expansion            : \033[33mUNMEASURED\033[0m (no usable graph cache — run --refresh-graph)\n'
