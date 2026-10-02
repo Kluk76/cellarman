@@ -195,9 +195,19 @@ sec()  { [ "$DO_JSON" = 1 ] || printf '\n\033[1m%s\033[0m\n' "$1"; }
 # structurally blind to db/migrations/, public/, app/ and bin/ — i.e. to every
 # surface where two devs actually collide. This is that check, un-narrowed.
 sec "P1 · upstream divergence"
-if [ "$DO_FETCH" = 1 ]; then
-  if git fetch --quiet "${UPSTREAM%%/*}" 2>/dev/null; then ok fetch "fetched ${UPSTREAM%%/*}"
-  else warn fetch "git fetch failed (offline? tailnet down?) — divergence below may be stale"; fi
+# SOLO = there is no shared reference to measure against (no such remote, or the
+# ref is absent). That is a statement about the project, not a clash: WARN once,
+# and mark every comparison against the reference n/a — never STOP a solo clone
+# forever, never print an "ok" that compared nothing.
+SOLO=0
+UP_REMOTE="${UPSTREAM%%/*}"
+HAVE_REMOTE=0
+git remote 2>/dev/null | grep -Fxq -- "$UP_REMOTE" && HAVE_REMOTE=1
+if [ "$HAVE_REMOTE" = 0 ]; then
+  : # nothing to fetch from; the shared-reference check below says so once
+elif [ "$DO_FETCH" = 1 ]; then
+  if git fetch --quiet "$UP_REMOTE" 2>/dev/null; then ok fetch "fetched $UP_REMOTE"
+  else warn fetch "git fetch failed (offline? host unreachable?) — divergence below may be stale"; fi
 else
   warn fetch "--no-fetch: divergence measured against a possibly stale remote ref"
 fi
@@ -224,7 +234,12 @@ if git rev-parse --verify --quiet "$UPSTREAM" >/dev/null; then
     ok ahead "nothing unpushed"
   fi
 else
-  stop upstream "ref '$UPSTREAM' does not exist — cannot measure divergence"
+  SOLO=1
+  if [ "$HAVE_REMOTE" = 0 ]; then
+    warn upstream "no shared reference — single-clone mode (no remote '$UP_REMOTE' is configured, so '$UPSTREAM' cannot exist); divergence and queue-vs-reference checks are n/a"
+  else
+    warn upstream "no shared reference — single-clone mode ('$UPSTREAM' does not exist on remote '$UP_REMOTE': push the branch, or fix PF_REF_NAME); divergence and queue-vs-reference checks are n/a"
+  fi
 fi
 
 # Uncommitted work in the SHARED worktree, listed not counted.
@@ -282,10 +297,15 @@ ls "$MIG_DIR"/*.sql 2>/dev/null | while IFS= read -r f; do basename "$f"; done |
 git ls-tree "$UPSTREAM" "$MIG_DIR/" --name-only 2>/dev/null \
   | sed 's|.*/||' | grep '\.sql$' | sort > "$TMP/upstream"
 
-ONLY_UP=$(comm -13 "$TMP/disk" "$TMP/upstream")
-ONLY_DK=$(comm -23 "$TMP/disk" "$TMP/upstream")
+ONLY_UP=""; ONLY_DK=""
+if [ "$SOLO" = 0 ]; then
+  ONLY_UP=$(comm -13 "$TMP/disk" "$TMP/upstream")
+  ONLY_DK=$(comm -23 "$TMP/disk" "$TMP/upstream")
+fi
 
-if [ -n "$ONLY_UP" ]; then
+if [ "$SOLO" = 1 ]; then
+  ok mig-upstream "n/a (single-clone mode: no shared reference to compare against)"
+elif [ -n "$ONLY_UP" ]; then
   stop mig-upstream "migration(s) on $UPSTREAM and NOT on your disk — the next deploy by ANYONE arms them:"
   [ "$DO_JSON" = 1 ] || printf '%s\n' "$ONLY_UP" | sed 's/^/         /'
   # Whose are they? The initial in the filename is the only reliable attributor:
@@ -301,7 +321,9 @@ else
   ok mig-upstream "no migration on $UPSTREAM missing from disk"
 fi
 
-if [ -n "$ONLY_DK" ]; then
+if [ "$SOLO" = 1 ]; then
+  ok mig-local "n/a (single-clone mode: no shared reference to compare against)"
+elif [ -n "$ONLY_DK" ]; then
   warn mig-local "migration file(s) on disk and NOT on $UPSTREAM (unpushed, or another session's):"
   [ "$DO_JSON" = 1 ] || printf '%s\n' "$ONLY_DK" | sed 's/^/         /'
 else

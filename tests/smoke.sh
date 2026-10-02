@@ -315,6 +315,18 @@ run bash bin/pm-preflight.sh --no-fetch; strip
 { has 'WARN hooks.*<unset>' "$OUTT"; }; check B7 "an unset hooks path still warns" $?
 
 ###############################################################################
+# 1.5 — no remote / no upstream ref: WARN "single-clone mode", never STOP
+###############################################################################
+mk_proj p15 noremote
+run bash bin/pm-preflight.sh; strip
+{ [ "$RC" = 1 ] && has 'WARN upstream.*no shared reference — single-clone mode' "$OUTT" && lacks 'STOP' "$OUTT"; }; check 1.5 "a repo with no remote: WARN, not STOP (rc=$RC)" $?
+{ has 'ok   mig-upstream.*n/a' "$OUTT" && has 'ok   mig-local.*n/a' "$OUTT" && lacks 'WARN fetch' "$OUTT"; }; check 1.5 "queue-vs-reference checks are n/a, no fetch noise" $?
+mk_proj p15b remote
+prof_set PF_REF_NAME '"origin/trunk"'
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ [ "$RC" = 1 ] && has 'WARN upstream.*single-clone mode.*does not exist on remote' "$OUTT" && lacks 'STOP' "$OUTT"; }; check 1.5 "a remote without the named branch: WARN, not STOP (rc=$RC)" $?
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"
