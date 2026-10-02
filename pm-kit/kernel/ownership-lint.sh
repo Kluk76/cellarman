@@ -129,6 +129,10 @@ fi
 # hex chars of it, behind SESSION_PREFIX, form the claim's 7th field.
 : "${SESSION_ENV_VAR:=${PF_SESSION_ENV_VAR:-CLAUDE_CODE_SESSION_ID}}"
 : "${SESSION_PREFIX:=${PF_SESSION_PREFIX:-}}"
+# Days after which a still-live claim is flagged for closing or restating
+# (PF_CLAIM_STALE_DAYS; the profile documented it, the code hardcoded 3).
+: "${STALE_DAYS:=${PF_CLAIM_STALE_DAYS:-3}}"
+case "$STALE_DAYS" in ''|*[!0-9]*) STALE_DAYS=3 ;; esac
 : "${RATIFY_TOKEN:=${PF_RATIFY_TOKEN:-RATIFIED:}}"
 : "${RATIFY_ACTION:=${PF_RATIFY_ACTION:-RECORD}}"
 # Lanes whose pattern starts with this prefix name a DATA surface, not a path,
@@ -541,13 +545,13 @@ EOF_CLAIMS_OPEN
   done
   # A claim nobody closed is indistinguishable from a claim nobody is working on.
   # Reads the collapsed set, so a slug closed today stops nagging today.
-  CLAIMS_AGING="$(awk -F'\t' -v today="$TODAY" '
+  CLAIMS_AGING="$(awk -F'\t' -v today="$TODAY" -v stale="$STALE_DAYS" '
     function g(y,m,d,  a,yy,mm){a=int((14-m)/12);yy=y+4800-a;mm=m+12*a-3;
       return d+int((153*mm+2)/5)+365*yy+int(yy/4)-int(yy/100)+int(yy/400)-32045}
     $1!="" && $4!="" {
       split($2,o,"-"); split(today,t,"-")
       age=g(t[1]+0,t[2]+0,t[3]+0)-g(o[1]+0,o[2]+0,o[3]+0)
-      if (age>3) printf "  ⚠    claim %s by %s is %d days old — close it or restate it\n", $4, $3, age
+      if (age>stale+0) printf "  ⚠    claim %s by %s is %d days old — close it or restate it\n", $4, $3, age
     }' <<EOF_CLAIMS_AGING
 $CLAIMS_OPEN
 EOF_CLAIMS_AGING

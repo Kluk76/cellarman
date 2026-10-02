@@ -495,6 +495,23 @@ run bash $LINT --dev a src/billing.php
 { [ "$RC" = 2 ] && has "'reopened'"; }; check A3 "a slug whose only row is restated is live (rc=$RC)" $?
 
 ###############################################################################
+# A19 — PF_CLAIM_STALE_DAYS is consumed (default 3)
+###############################################################################
+mk_proj pa19 remote
+printf 'own a logic src/*\n' > claude-brain/OWNERSHIP.map
+LINT="$KITREL/kernel/ownership-lint.sh"; CL=claude-brain/CLAIMS.tsv
+printf 'open\t%s-%s-%s\ta\tmine\tsrc/other*\tnote\n' "$(ago_ymd 7 | cut -c1-4)" "$(ago_ymd 7 | cut -c5-6)" "$(ago_ymd 7 | cut -c7-8)" > $CL
+prof_set PF_CLAIM_STALE_DAYS '"30"'
+run bash $LINT --dev a src/billing.php
+{ lacks 'days old'; }; check A19 "a 7-day claim is not flagged with PF_CLAIM_STALE_DAYS=30" $?
+prof_set PF_CLAIM_STALE_DAYS '"3"'
+run bash $LINT --dev a src/billing.php
+{ has 'claim mine by a is 7 days old'; }; check A19 "a 7-day claim is flagged with PF_CLAIM_STALE_DAYS=3" $?
+prof_set PF_CLAIM_STALE_DAYS '""'
+run bash $LINT --dev a src/billing.php
+{ has 'is 7 days old'; }; check A19 "an empty PF_CLAIM_STALE_DAYS falls back to 3" $?
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"
