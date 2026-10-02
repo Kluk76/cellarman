@@ -599,7 +599,11 @@ else
     NSTALE=$(grep -c 'STALE' "$TMP/arb" 2>/dev/null || true); NSTALE=${NSTALE:-0}
     while IFS="$(printf '\t')" read -r LVL ID AGE DRIFT; do
       case "$LVL" in
-        STOP) warn arbitration "$ID — $AGE d open, past the ${ARB_STOP_DAYS}d escalation threshold$DRIFT" ;;
+        # PF_ARB_STOP_DAYS is a STOP threshold, as its name and the README ("act on
+        # exit 2") say: an item open that long blocks the session until a human
+        # rules on it. (It used to be emitted at WARN, so the variable never
+        # stopped anything.)
+        STOP) stop arbitration "$ID — $AGE d open, past the ${ARB_STOP_DAYS}d escalation threshold$DRIFT" ;;
         WARN) warn arbitration "$ID — $AGE d open, name it in the recommendation$DRIFT" ;;
       esac
     done < "$TMP/arb"
@@ -612,7 +616,7 @@ else
       warn arbitration "$NFMT header(s) OUTSIDE THE CLOSURE VOCABULARY, counted OPEN because they could not be read: $FMTIDS— closure is written ' · <WORD>' with the word GLUED to the ' · ' separator and any decoration AFTER it; <WORD> is one of: $ARB_CLOSED_RE (profile variable PF_ARB_CLOSED_RE). OFF-TEMPLATE = decoration between the separator and the word (near-certain); SUSPECT = a closure word elsewhere in the header (may be legitimate prose)."
     fi
     [ "$NSTALE" -gt 0 ] && warn arbitration "$NSTALE item(s) carry a STALE declared age — the '· N j' field is decoration; delete it or generate it"
-    [ "$NSTOP" -gt 0 ] && warn arbitration "$NSTOP item(s) need a human tsk_ escalation — ⛔ the PM must NOT create it (real mail, prod write)"
+    [ "$NSTOP" -gt 0 ] && warn arbitration "$NSTOP item(s) past the ${ARB_STOP_DAYS}d threshold need a human escalation${PF_ARB_ESCALATION:+ ($PF_ARB_ESCALATION)} — the PM must NOT create it"
     ok arbitration "queue measured: $NSTOP overdue / $NWARN ageing"
   fi
 fi

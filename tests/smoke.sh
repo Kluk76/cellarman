@@ -94,6 +94,8 @@ mk_toolpath() {
 COMMON_TOOLS="bash sh env cmp find sort wc date head tail grep sed tr cut awk mktemp rm cat dirname basename readlink printf mv cp ls comm uniq stat touch git jq"
 # ago_stamp <days>: touch -t stamp (YYYYMMDDhhmm) for N days ago, GNU or BSD date.
 ago_stamp() { date -d "-$1 days" +%Y%m%d%H%M 2>/dev/null || date -v "-${1}d" +%Y%m%d%H%M; }
+# ago_ymd <days>: YYYYMMDD for N days ago (UTC, as the pre-flight computes ages), GNU or BSD date.
+ago_ymd() { date -u -d "-$1 days" +%Y%m%d 2>/dev/null || date -u -v "-${1}d" +%Y%m%d; }
 commit_all() { git add -- . && git commit -q -m "${1:-state}" && { [ ! -d "$REMOTE" ] || git push -q > /dev/null 2>&1; }; }
 
 ###############################################################################
@@ -455,6 +457,19 @@ if command -v mawk >/dev/null 2>&1; then
   LC_ALL=C run bash bin/pm-preflight.sh --no-fetch; strip
   { lacks 'arbitration.*a-fini-thing — [0-9]* d open' "$OUTT" && has 'arbitration.*a-done-thing — [0-9]* d open' "$OUTT"; }; check A15 "same verdicts under LC_ALL=C" $?
 else skip A15 "mawk not installed (awk-flavour case)"; fi
+
+###############################################################################
+# A17 — PF_ARB_STOP_DAYS is honoured as a STOP
+###############################################################################
+mk_proj pa17 remote
+HR="$MEMDIR/dev-handoff-register.md"
+printf '# register\n\n### H-%s-a-ageing-item\n' "$(ago_ymd 4)" > "$HR"
+printf '\nregister: dev-handoff-register.md\n' >> "$INDEX"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ [ "$RC" != 2 ] && has 'WARN arbitration.*ageing-item — 4 d open' "$OUTT" && lacks 'STOP arbitration' "$OUTT"; }; check A17 "an item 4 days old (past WARN_DAYS=3) only WARNs (rc=$RC)" $?
+printf '### H-%s-a-overdue-item\n' "$(ago_ymd 10)" >> "$HR"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ [ "$RC" = 2 ] && has 'STOP arbitration.*overdue-item — 10 d open, past the 7d' "$OUTT"; }; check A17 "an item 10 days old (past STOP_DAYS=7) STOPs, exit 2 (rc=$RC)" $?
 
 ###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
