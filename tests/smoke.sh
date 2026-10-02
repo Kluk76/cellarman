@@ -86,6 +86,23 @@ run bash "$KITREL/doctor.sh" --strict
 { [ "$RC" = 0 ] && has '0 fail(s)'; }; check 1.1 "doctor --strict passes on the untouched seed index (rc=$RC)" $?
 
 ###############################################################################
+# 1.2 / 1.3 — one index naming scheme; default extra corpus empty; per-pattern
+###############################################################################
+run bash "$KITREL/kernel/rails-index.sh"
+{ [ "$RC" != 2 ] && lacks 'STOP'; }; check 1.2 "rails-index on the README install finds the index (rc=$RC)" $?
+IDX_CONF="$(sed -n 's|^PM_INDEX=.*claude-brain/|claude-brain/|p' claude-brain/pm-kit.conf | tr -d '"')"
+IDX_PROF="$(sed -n 's|^PF_PM_INDEX="\(.*\)".*|\1|p' "$PROFILE")"
+{ [ -n "$IDX_PROF" ] && [ "$IDX_CONF" = "$IDX_PROF" ]; }; check 1.2 "pm-kit.conf PM_INDEX and profile PF_PM_INDEX name the same file" $?
+{ grep -q '^PF_RAILS_EXTRA_CORPUS=""' "$PROFILE"; }; check 1.3 "default PF_RAILS_EXTRA_CORPUS is empty" $?
+mkdir -p "$MEMDIR/rails-register"; printf -- '- 🔴 `app/x.php` is sealed\n' > "$MEMDIR/rails-register/a.md"
+prof_set PF_RAILS_EXTRA_CORPUS "\"$MEMDIR/rails-register/*.md $MEMDIR/missing-register.md\""
+run bash "$KITREL/kernel/rails-index.sh"
+{ [ "$RC" = 2 ] && has 'missing-register.md".*matches no file'; }; check 1.3 "one unresolved pattern on a two-pattern line is reported (rc=$RC)" $?
+prof_set PF_RAILS_EXTRA_CORPUS "\"$MEMDIR/rails-register/*.md\""
+run bash "$KITREL/kernel/rails-index.sh"
+{ [ "$RC" != 2 ] && has "CORPUS.*rails-register/a.md"; }; check 1.3 "a fully resolving extra corpus is mined (rc=$RC)" $?
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

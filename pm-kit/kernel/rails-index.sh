@@ -186,18 +186,27 @@ if [ -n "$EXTRA_CORPUS" ]; then
     CL=$(printf '%s' "$CL" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
     [ -z "$CL" ] && continue
     # glob expansion is deliberate (a profile may name a directory of
-    # registers); set -- keeps bash 3.2 happy, no arrays.
-    MATCHED=0
-    for P in $CL; do
-      if [ -f "$REPO_ROOT/$P" ]; then
-        printf '%s\n' "$P" >> "$CORPUS_LIST"
-        MATCHED=1
+    # registers). Each whitespace-separated PATTERN is resolved on its own:
+    # `set -f` keeps the list itself from expanding, `set +f` expands one
+    # pattern at a time — so a line naming two patterns where only one
+    # resolves still reports the other (a per-LINE flag let it vanish).
+    set -f
+    for PAT in $CL; do
+      set +f
+      MATCHED=0
+      for P in $PAT; do
+        if [ -f "$REPO_ROOT/$P" ]; then
+          printf '%s\n' "$P" >> "$CORPUS_LIST"
+          MATCHED=1
+        fi
+      done
+      set -f
+      if [ "$MATCHED" = 0 ]; then
+        printf 'rails-index: STOP — PF_RAILS_EXTRA_CORPUS names "%s", which matches no file under %s. A declared corpus that cannot be read must not silently shrink the index.\n' \
+          "$PAT" "$REPO_ROOT" >> "$TMP/corpus.err"
       fi
     done
-    if [ "$MATCHED" = 0 ]; then
-      printf 'rails-index: STOP — PF_RAILS_EXTRA_CORPUS names "%s", which matches no file under %s. A declared corpus that cannot be read must not silently shrink the index.\n' \
-        "$CL" "$REPO_ROOT" >> "$TMP/corpus.err"
-    fi
+    set +f
   done
 fi
 
