@@ -168,8 +168,8 @@ if [ ! -f "$PM_INDEX" ]; then
   exit 2
 fi
 
-TMP="${TMPDIR:-/tmp}/rails-index.$$"
-mkdir -p "$TMP" || exit 64
+# mktemp -d: a predictable $TMPDIR/rails-index.$$ can be pre-created by someone else.
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/rails-index.XXXXXX")" || exit 64
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 # ── corpus list: the index, THEN every file PF_RAILS_EXTRA_CORPUS declares ───

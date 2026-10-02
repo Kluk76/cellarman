@@ -265,7 +265,8 @@ fi
 # dir ON THE DEPLOY TARGET and never the shared reference ($UPSTREAM). The only
 # measure that decides, in BOTH directions, is a diff.
 sec "P2 · migration queue"
-TMP="${TMPDIR:-/tmp}/pmpf.$$"; mkdir -p "$TMP" || exit 64
+# mktemp -d: a predictable $TMPDIR/pmpf.$$ can be pre-created by someone else.
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/pmpf.XXXXXX")" || exit 64
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 ls "$MIG_DIR"/*.sql 2>/dev/null | while IFS= read -r f; do basename "$f"; done | sort > "$TMP/disk"

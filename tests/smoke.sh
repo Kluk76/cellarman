@@ -285,6 +285,18 @@ run bash "$KITREL/kernel/rails-index.sh"; strip
 { [ "$RC" = 0 ] && has 'expansion  *: MEASURED' "$OUTT" && has 'v_users_summary' "$KITREL/state/RAILS-BY-ARTEFACT.tsv"; }; check A7 "a cache with an edge is MEASURED and expands (rc=$RC)" $?
 
 ###############################################################################
+# B6 — scratch space is a private mktemp -d directory, removed on exit
+###############################################################################
+mk_proj pb6 remote
+mkdir -p "$SB/tmpd"
+for tool in pm-preflight rails-index; do
+  if [ "$tool" = pm-preflight ]; then XARGS=--no-fetch; else XARGS=""; fi
+  run env TMPDIR="$SB/tmpd" bash -x "$KITREL/kernel/$tool.sh" $XARGS
+  LEFT="$(ls "$SB/tmpd" | wc -l | tr -d ' ')"
+  { has "mktemp -d $SB/tmpd/" && [ "$LEFT" = 0 ]; }; check B6 "$tool uses mktemp -d under \$TMPDIR and leaves nothing behind" $?
+done
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"
