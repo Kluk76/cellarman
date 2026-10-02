@@ -512,6 +512,27 @@ run bash $LINT --dev a src/billing.php
 { has 'is 7 days old'; }; check A19 "an empty PF_CLAIM_STALE_DAYS falls back to 3" $?
 
 ###############################################################################
+# (a) — --claim-exempt waives the CLAIM check in BOTH branches, keeps the LANE check
+###############################################################################
+mk_proj pca remote
+printf 'own a ops claude-brain/*\nfrozen * fiscal claude-brain/frozen.md\n' > claude-brain/OWNERSHIP.map
+LINT="$KITREL/kernel/ownership-lint.sh"; CL=claude-brain/CLAIMS.tsv; GOV=claude-brain/CLAIMS.tsv
+printf 'open\t%s\tb\tgov-edit\tclaude-brain/*\tnote\ts-bbbbbbbb\n' "$TODAY_ISO" > $CL
+run bash $LINT --dev a $GOV
+{ [ "$RC" = 2 ] && has "under an OPEN CLAIM by 'b'"; }; check claim-exempt "baseline: another dev's claim blocks the governance path (rc=$RC)" $?
+run bash $LINT --dev a --claim-exempt "$GOV" $GOV
+{ [ "$RC" = 0 ] && has 'claim-exempt' && lacks '⛔'; }; check claim-exempt "cross-dev branch: exempt path is not blocked (rc=$RC)" $?
+run bash $LINT --dev a --claim-exempt "$GOV" claude-brain/other.md
+{ [ "$RC" = 2 ] && has "under an OPEN CLAIM by 'b'"; }; check claim-exempt "a NON-exempt path under the same claim still blocks (rc=$RC)" $?
+printf 'open\t%s\ta\tmine\tclaude-brain/*\tnote\ts-aaaaaaaa\n' "$TODAY_ISO" > $CL
+run env CLAUDE_CODE_SESSION_ID=cccccccc-0000-4000-8000-000000000000 bash $LINT --dev a $GOV
+{ [ "$RC" = 2 ] && has 'ANOTHER SESSION of the same dev'; }; check claim-exempt "baseline: same dev, other session blocks the governance path (rc=$RC)" $?
+run env CLAUDE_CODE_SESSION_ID=cccccccc-0000-4000-8000-000000000000 bash $LINT --dev a --claim-exempt "$GOV" $GOV
+{ [ "$RC" = 0 ] && has 'claim-exempt' && lacks 'ANOTHER SESSION'; }; check claim-exempt "same-dev/other-session branch: exempt path is not blocked (rc=$RC)" $?
+run bash $LINT --dev a --claim-exempt claude-brain/frozen.md claude-brain/frozen.md
+{ [ "$RC" = 2 ] && has 'FROZEN lane'; }; check claim-exempt "the LANE check still applies to an exempt path (frozen, rc=$RC)" $?
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

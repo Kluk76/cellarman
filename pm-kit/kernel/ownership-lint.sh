@@ -45,7 +45,7 @@
 #      open claim held by the other dev
 #
 # USAGE
-#   ownership-lint.sh [--map F] [--claims F] [--dev <id>] [--ratified TEXT] [--quiet] [--refresh] PATH...
+#   ownership-lint.sh [--map F] [--claims F] [--dev <id>] [--ratified TEXT] [--claim-exempt "P1 P2"] [--quiet] [--refresh] PATH...
 #   ownership-lint.sh --refresh            # regenerate the EVIDENCE column from git
 #   RATIFIED="RATIFIED: k+l, 2026-08-06" ownership-lint.sh PATH...
 #   git diff --name-only | xargs ownership-lint.sh
@@ -72,6 +72,7 @@ QUIET=0
 REFRESH=0
 PATHS=""
 RATIFIED_FLAG=""
+CLAIM_EXEMPT=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -80,6 +81,7 @@ while [ $# -gt 0 ]; do
     --claims)  [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --claims needs a value" >&2; exit 64; }; CLAIMS="$2"; shift 2 ;;
     --dev)     [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --dev needs a value" >&2; exit 64; }; DEV="$2"; shift 2 ;;
     --ratified) [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --ratified needs a value" >&2; exit 64; }; RATIFIED_FLAG="$2"; shift 2 ;;
+    --claim-exempt) [ $# -ge 2 ] || { echo "ownership-lint: --claim-exempt needs a value" >&2; exit 64; }; CLAIM_EXEMPT="$2"; shift 2 ;;
     --quiet)   QUIET=1; shift ;;
     --refresh) REFRESH=1; shift ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
@@ -303,6 +305,23 @@ ratify_hint() {
   say "       To proceed: pass --ratified \"$RATIFY_TOKEN <who>, <when>\", or set RATIFIED=\"$RATIFY_TOKEN <who>, <when>\", or put a '$RATIFY_TOKEN <who>, <when>' line in the commit message body."
 }
 
+# --claim-exempt: paths (EXACT equality, never a glob) that skip the CLAIM check
+# but keep the LANE check. For a governance surface every session READS (the
+# ownership map, the claims ledger, the handoff register): a claim over it must
+# not STOP a session whose build never touches it. The exemption is tested
+# FIRST in the claim loop, ahead of the same-dev / other-dev split, so it covers
+# the same-dev-other-session verdict as well as the cross-dev one.
+is_claim_exempt() {
+  [ -n "$CLAIM_EXEMPT" ] || return 1
+  local E
+  set -f
+  for E in $CLAIM_EXEMPT; do
+    if [ "$1" = "$E" ]; then set +f; return 0; fi
+  done
+  set +f
+  return 1
+}
+
 for P in $PATHS; do
   # Collect EVERY matching lane, not just the last one — a path legitimately
   # matches several lanes at different concerns (one owner's logic in a file,
@@ -512,7 +531,9 @@ if [ -f "$CLAIMS" ]; then
       for CG in $CGLOB; do
         # shellcheck disable=SC2254
         case "$P" in $CG)
-          if [ "$CDEV" = "$DEV" ]; then
+          if is_claim_exempt "$P"; then
+            say "  ok   $P — governance surface (claim-exempt): the CLAIM check is waived, the LANE check above still applies. (under claim '$SLUG' by '$CDEV' since $OPENED)"
+          elif [ "$CDEV" = "$DEV" ]; then
             # Matching the dev initial proves the CORRIDOR, not the session.
             # Three outcomes, and the default (unknown on either side) is the
             # LOUD one — a vocabulary this open must fail closed, or the FALSE
