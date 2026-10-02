@@ -261,7 +261,10 @@ function head_prefix_ok(s,   changed) {
     if (sub(/^[ \t]+/, "", s)) changed = 1
     if (sub(/^-+/,     "", s)) changed = 1
     if (sub(/^\*+/,    "", s)) changed = 1
-    if (substr(s, 1, 1) == "🆕") { s = substr(s, 2); changed = 1 }
+    # index()/length() on the SAME byte string in whichever mode this awk runs
+    # (chars under gawk+UTF-8, bytes under mawk / LC_ALL=C): comparing
+    # substr(s,1,1) to a 4-byte badge only works in char mode.
+    if (index(s, BADGE) == 1) { s = substr(s, length(BADGE) + 1); changed = 1 }
   }
   return (s == "")
 }
@@ -296,7 +299,7 @@ function tag_markers(buf,   out, rest, mstart, mlen, mtext, prefix, before, lvl)
     if (head_prefix_ok(before)) {
       lvl = levelOf[mtext]
       out = out prefix "\001" lvl "\002"
-    } else if (length(before) >= 3 && substr(before, length(before) - 2) == " · ") {
+    } else if (length(before) >= length(SEP) && substr(before, length(before) - length(SEP) + 1) == SEP) {
       lvl = levelOf[mtext]
       out = out prefix "\001" lvl "\002"
     } else {
@@ -417,6 +420,11 @@ function process_record(buf, head_fnr,
 }
 
 BEGIN {
+  # Multi-byte literals are measured with length(), never assumed to be 1 / 3
+  # "characters": the same file must classify identically under gawk UTF-8,
+  # mawk and LC_ALL=C (a rail was STOP under one and INFO under another).
+  BADGE = "🆕"
+  SEP = " · "
   nmarkers = 0
   MARKRE = ""
   while ((getline mline < MARKFILE) > 0) {

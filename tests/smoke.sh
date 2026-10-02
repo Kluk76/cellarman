@@ -241,6 +241,34 @@ run bash "$KITREL/doctor.sh"
 rm -f "$MEMDIR/old-never-loaded.md" "$MEMDIR/new-arc.md"
 
 ###############################################################################
+# A8 — rail severity is identical under gawk UTF-8, gawk LC_ALL=C and mawk
+###############################################################################
+mk_proj pa8 remote
+cat >> "$INDEX" <<'EOF'
+- ⛔ never edit `app/db.php` by hand · 🔴 `ref_users` is read by two views · ⛔ `fin_ledger.amount` is sealed
+- 🆕 ⛔ badge-led rail on `scripts/deploy.sh`
+EOF
+sev() { awk -F'\t' -v a="$1" '$1==a {print $2; exit}' "$PROJ/$KITREL/state/RAILS-BY-ARTEFACT.tsv"; }
+sevline() { printf 'db.php=%s ref_users=%s fin_ledger.amount=%s deploy.sh=%s' "$(sev app/db.php)" "$(sev ref_users)" "$(sev fin_ledger.amount)" "$(sev scripts/deploy.sh)"; }
+EXPECT_SEV='db.php=STOP ref_users=WARN fin_ledger.amount=STOP deploy.sh=STOP'
+UTF8_LOC=""; for l in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do locale -a 2>/dev/null | grep -qx "$l" && { UTF8_LOC="$l"; break; }; done
+AWKSHIM="$SB/awkshim"; mkdir -p "$AWKSHIM"
+if command -v gawk >/dev/null 2>&1; then
+  ln -sf "$(command -v gawk)" "$AWKSHIM/awk"
+  if [ -n "$UTF8_LOC" ]; then
+    run env PATH="$AWKSHIM:$PATH" LC_ALL="$UTF8_LOC" bash "$KITREL/kernel/rails-index.sh"; got="$(sevline)"
+    [ "$got" = "$EXPECT_SEV" ]; check A8 "gawk + $UTF8_LOC: $got" $?
+  else skip A8 "gawk UTF-8 (no UTF-8 locale installed)"; fi
+  run env PATH="$AWKSHIM:$PATH" LC_ALL=C bash "$KITREL/kernel/rails-index.sh"; got="$(sevline)"
+  [ "$got" = "$EXPECT_SEV" ]; check A8 "gawk + LC_ALL=C: $got" $?
+else skip A8 "gawk not installed"; fi
+if command -v mawk >/dev/null 2>&1; then
+  ln -sf "$(command -v mawk)" "$AWKSHIM/awk"
+  run env PATH="$AWKSHIM:$PATH" bash "$KITREL/kernel/rails-index.sh"; got="$(sevline)"
+  [ "$got" = "$EXPECT_SEV" ]; check A8 "mawk: $got" $?
+else skip A8 "mawk not installed (awk-flavour case)"; fi
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"
