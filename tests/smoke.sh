@@ -685,6 +685,49 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 { has 'UNMEASURED ownership' "$OUTT" && has 'UNMEASURED arbitration' "$OUTT" && has 'UNMEASURED rails' "$OUTT" && has 'UNMEASURED memory' "$OUTT" && [ "$RC" = 1 ]; }; check A3 "declared-but-absent map/register/rails/doctor are each UNMEASURED, exit 1 (rc=$RC)" $?
 
 ###############################################################################
+# A4 — N code commits since the last memory commit
+###############################################################################
+mk_proj pa4m remote
+prof_set PF_MEMORY_COMMIT_WARN '"3"'; prof_set PF_ALWAYS_PATHS '"claude-brain/CLAIMS.tsv"'
+mkdir -p src; printf '# state\topened\tdev\tslug\tglobs\tnote\tsession\n' > claude-brain/CLAIMS.tsv
+printf '\nbaseline\n' >> "$INDEX"
+commit_all "memory commit (also carries the profile and the claims file)"
+printf 'a\n' > src/a.txt; commit_all "code 1"
+printf 'b\n' > src/b.txt; commit_all "code 2"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'ok   memory-fresh.*2 code commit(s) since the last memory commit' "$OUTT" && lacks 'WARN memory-fresh' "$OUTT"; }; check A4 "2 code commits (< threshold 3): ok, counted" $?
+printf 'c\n' > src/c.txt; commit_all "code 3"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'WARN memory-fresh.*3 code commit(s) since the last memory commit' "$OUTT"; }; check A4 "3 code commits (= threshold): WARN" $?
+printf 'claim\n' >> claude-brain/CLAIMS.tsv; commit_all "claims only"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'WARN memory-fresh.*3 code commit(s)' "$OUTT"; }; check A4 "a commit touching only an always-checked governance path is not a code commit" $?
+printf '\nnote\n' >> "$INDEX"; commit_all "memory"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'ok   memory-fresh.*0 code commit(s)' "$OUTT"; }; check A4 "a memory commit resets the count" $?
+prof_set PF_MEMORY_PATHS '"claude-brain/never-committed.md"'
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'ok   memory-fresh.*n/a (no commit has touched the memory paths yet)' "$OUTT"; }; check A4 "no memory commit yet: n/a, never a count against the whole history" $?
+prof_set PF_MEMORY_COMMIT_WARN '"0"'
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'ok   memory-fresh.*n/a (PF_MEMORY_COMMIT_WARN=0' "$OUTT"; }; check A4 "PF_MEMORY_COMMIT_WARN=0 turns the check off" $?
+
+###############################################################################
+# 6 — the rails table older than its sources is a WARN, never silently used
+###############################################################################
+mk_proj prs remote
+printf -- '- 🔴 `ref_users` is read by two views\n' >> "$INDEX"
+run bash "$KITREL/kernel/rails-index.sh"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths ref_users; strip
+{ lacks 'rails-stale' "$OUTT"; }; check rails-fresh "a table generated after the index is not stale" $?
+touch -t "$(ago_stamp 1)" "$KITREL/state/RAILS-BY-ARTEFACT.tsv"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths ref_users; strip
+{ has 'WARN rails-stale.*acme-pm-memory.md is newer than' "$OUTT"; }; check rails-fresh "an index newer than the table WARNs and names the file" $?
+run bash "$KITREL/kernel/rails-index.sh"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths ref_users; strip
+{ lacks 'rails-stale' "$OUTT"; }; check rails-fresh "regenerating clears the warning" $?
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

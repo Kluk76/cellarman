@@ -151,6 +151,18 @@ fi
 : "${DEV_ENV_VAR:=PM_DEV}"
 : "${RAILS_TSV:=${PF_RAILS_OUTPUT:-}}"
 : "${OWNERSHIP_PROSE:=${PF_OWNERSHIP_PROSE:-}}"
+# PF_MEMORY_PATHS: repo-relative files and directories that are the PM's memory
+# (space-separated). Default: the index named by PF_PM_INDEX and the topic
+# directory next to it, i.e. the same name without ".md" (the layout the seed and
+# the example agent file use). Read by the memory-freshness check (P7).
+: "${MEMORY_PATHS:=${PF_MEMORY_PATHS:-}}"
+if [ -z "$MEMORY_PATHS" ] && [ -n "${PF_PM_INDEX:-}" ]; then
+  MEMORY_PATHS="$PF_PM_INDEX ${PF_PM_INDEX%.md}"
+fi
+# PF_MEMORY_COMMIT_WARN: warn when this many code commits sit on the current
+# branch since the last commit that touched the memory paths. 0 turns it off.
+MEMORY_COMMIT_WARN="${PF_MEMORY_COMMIT_WARN:-10}"
+case "$MEMORY_COMMIT_WARN" in ''|*[!0-9]*) MEMORY_COMMIT_WARN=10 ;; esac
 : "${ALWAYS_PATHS:=${PF_ALWAYS_PATHS:-}}"
 # PF_DRIFT_SLUG_RE: despite the name, a SED SCRIPT that reduces a migration's
 # basename (no .sql) to its subject word. Default is author-agnostic: any single
@@ -768,6 +780,37 @@ else
   unmeasured memory "$DOCTOR is not executable — memory health was not measured"
 fi
 
+# ── P7b. Memory freshness: code commits since the last memory commit ────────────
+# A code commit with no memory update is how the record falls behind the code.
+# Counts commits on the CURRENT branch that touch something other than the memory
+# paths and the governance paths (claims, ownership map, register: those commits
+# are bookkeeping, not code) since the last commit that touched the memory paths.
+if [ -z "$MEMORY_PATHS" ]; then
+  ok memory-fresh "n/a (no memory paths declared: PF_MEMORY_PATHS and PF_PM_INDEX are empty)"
+elif [ "$MEMORY_COMMIT_WARN" = 0 ]; then
+  ok memory-fresh "n/a (PF_MEMORY_COMMIT_WARN=0: check turned off)"
+else
+  MEMSPEC=(); MEMEXCL=()
+  set -f
+  for _mp in $MEMORY_PATHS; do MEMSPEC[${#MEMSPEC[@]}]="$_mp"; MEMEXCL[${#MEMEXCL[@]}]=":(exclude)$_mp"; done
+  for _ap in ${ALWAYS_ARR[@]+"${ALWAYS_ARR[@]}"}; do MEMEXCL[${#MEMEXCL[@]}]=":(exclude)$_ap"; done
+  set +f
+  LASTMEM=$(git log -1 --format=%H -- "${MEMSPEC[@]}" 2>/dev/null)
+  if [ -z "$LASTMEM" ]; then
+    ok memory-fresh "n/a (no commit has touched the memory paths yet)"
+  else
+    NCODE=$(git rev-list --count "$LASTMEM..HEAD" -- . "${MEMEXCL[@]}" 2>/dev/null || true)
+    case "$NCODE" in ''|*[!0-9]*) unmeasured memory-fresh "could not count commits since the last memory commit ($(git log -1 --format=%h "$LASTMEM"))" ; NCODE="" ;; esac
+    if [ -n "$NCODE" ]; then
+      if [ "$NCODE" -ge "$MEMORY_COMMIT_WARN" ]; then
+        warn memory-fresh "$NCODE code commit(s) since the last memory commit ($(git log -1 --format='%h %cs' "$LASTMEM")) — the record may be behind the code (threshold $MEMORY_COMMIT_WARN, PF_MEMORY_COMMIT_WARN)"
+      else
+        ok memory-fresh "$NCODE code commit(s) since the last memory commit (threshold $MEMORY_COMMIT_WARN)"
+      fi
+    fi
+  fi
+fi
+
 # ── P8. Artefact-keyed rails — recall by ADDRESS, not by association ───────────
 # rails-index.sh mines the PM's always-read index into a TSV keyed on the
 # named artefact each rail protects (table/file/column/symbol), transitively
@@ -782,6 +825,19 @@ if [ -z "$RAILS_TSV" ]; then
 elif [ ! -f "$RAILS_TSV" ]; then
   unmeasured rails "$RAILS_TSV absent — not a clean pass. Run kernel/rails-index.sh (with --refresh-graph at least once, if a view graph is declared) before trusting this check."
 else
+  # Freshness: the table is DERIVED from the index (and the extra corpus), and
+  # nothing regenerates it. A source newer than the table means rails written or
+  # changed since the last rails-index.sh run are invisible here. The pre-flight is
+  # a read-only instrument, so it warns instead of regenerating. (mtimes: a pull
+  # that rewrites the index also trips this, which is the right call: the table
+  # was built from the old text.)
+  # (cwd is the repo root; EXTRA_CORPUS patterns are globs, expanded here.)
+  for _f in ${PF_PM_INDEX:-} ${PF_RAILS_EXTRA_CORPUS:-}; do
+    [ -f "$_f" ] || continue
+    if [ "$_f" -nt "$RAILS_TSV" ]; then
+      warn rails-stale "$_f is newer than $RAILS_TSV — rails recorded since the last run are not in the table. Run kernel/rails-index.sh."
+    fi
+  done
   _load_touch
   # Candidates (the path and its basename) for the build's own paths and, apart,
   # for the ambient ones — a candidate named by both counts as the build's.
