@@ -91,6 +91,8 @@ mk_toolpath() {
   for t in "$@"; do w="$(command -v "$t" 2>/dev/null)" && [ -x "$w" ] && ln -sf "$w" "$d/$t"; done
 }
 COMMON_TOOLS="bash sh env cmp find sort wc date head tail grep sed tr cut awk mktemp rm cat dirname basename readlink printf mv cp ls comm uniq stat touch git jq"
+# ago_stamp <days>: touch -t stamp (YYYYMMDDhhmm) for N days ago, GNU or BSD date.
+ago_stamp() { date -d "-$1 days" +%Y%m%d%H%M 2>/dev/null || date -v "-${1}d" +%Y%m%d%H%M; }
 commit_all() { git add -- . && git commit -q -m "${1:-state}" && { [ ! -d "$REMOTE" ] || git push -q > /dev/null 2>&1; }; }
 
 ###############################################################################
@@ -224,6 +226,19 @@ mk_toolpath "$SB/nocmp" $(for t in $COMMON_TOOLS; do [ "$t" = cmp ] || printf '%
 run env PATH="$SB/nocmp" "$(command -v bash)" "$KITREL/doctor.sh"
 { has "check (8) UNMEASURED — required tool 'cmp'" && lacks 'copies in sync'; }; check B2 "a missing cmp is UNMEASURED, never 'in sync'" $?
 cp claude-brain/agents/acme-pm.md "$HOME/.claude/agents/acme-pm.md"
+
+###############################################################################
+# A14 — dormancy only for files older than PM_DORMANT_DAYS
+###############################################################################
+mk_proj pa14 remote
+printf '# J\n' > "$MEMDIR/journal.md"
+printf '# old\n' > "$MEMDIR/old-never-loaded.md"; touch -t "$(ago_stamp 120)" "$MEMDIR/old-never-loaded.md"
+printf '# new\n' > "$MEMDIR/new-arc.md"
+printf 'old-never-loaded.md new-arc.md\n' >> "$INDEX"
+printf '%s\tjournal.md\n' "$(date +%F)" > claude-brain/agents/.pm-load-log.tsv
+run bash "$KITREL/doctor.sh"
+{ has 'older than 90 days' && has '^    old-never-loaded.md' && ! grep -q '^    new-arc.md' "$OUT"; }; check A14 "only the 120-day-old unloaded file is dormant; today's new-arc.md is not" $?
+rm -f "$MEMDIR/old-never-loaded.md" "$MEMDIR/new-arc.md"
 
 ###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"

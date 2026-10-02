@@ -343,20 +343,28 @@ fi
 
 # ── 10. Dormant topic files (telemetry-backed) ───────────────────────────────
 if [ -f "${PM_LOAD_LOG:-/nonexistent}" ] && [ -d "$PM_MEMORY_DIR" ]; then
-    CUTOFF=$(date -d "-${PM_DORMANT_DAYS} days" +%F 2>/dev/null || date -v -"${PM_DORMANT_DAYS}"d +%F)
+    DORM_DAYS="${PM_DORMANT_DAYS:-90}"
+    CUTOFF=$(date -d "-${DORM_DAYS} days" +%F 2>/dev/null || date -v -"${DORM_DAYS}"d +%F 2>/dev/null || true)
+    if [ -z "$CUTOFF" ]; then
+        warn "dormancy check (10) UNMEASURED — neither 'date -d' nor 'date -v' could compute the cutoff"
+    else
     RECENT=$(awk -F'\t' -v c="$CUTOFF" '$1 >= c { print $2 }' "$PM_LOAD_LOG" | sort -u)
     DORMANT=0
     DORMANT_LIST=""
+    # Only files OLDER than the window can be dormant: "zero loads in N days" says
+    # nothing about a file that did not exist N days ago (a topic file created
+    # today was reported as a dead pointer).
     while IFS= read -r f; do
         rel="${f#"$PM_MEMORY_DIR"/}"
         if ! printf '%s\n' "$RECENT" | grep -qx -- "$rel"; then
             DORMANT=$((DORMANT+1))
             [ "$DORMANT" -le 10 ] && DORMANT_LIST="${DORMANT_LIST}    ${rel}"$'\n'
         fi
-    done < <(find "$PM_MEMORY_DIR" -name '*.md' -type f)
+    done < <(find "$PM_MEMORY_DIR" -name '*.md' -type f -mtime +"$DORM_DAYS")
     if [ "$DORMANT" -gt 0 ]; then
-        warn "${DORMANT} topic file(s) with zero recorded loads in ${PM_DORMANT_DAYS} days (dead pointer or mis-matched trigger — first 10):"
+        warn "${DORMANT} topic file(s) older than ${DORM_DAYS} days with zero recorded loads in that window (dead pointer or mis-matched trigger — first 10):"
         printf '%s' "$DORMANT_LIST"
+    fi
     fi
 else
     ok "no load telemetry yet (dormancy check skipped)"
