@@ -214,6 +214,26 @@ run bash "$KITREL/catalog.sh" --grep tailword
 { ! has 'tailword'; }; check cat-c "the shortened display does not carry the tail" $?
 rm -f "$MEMDIR/many-triggers.md"
 
+# C5.7 a trigger wrapped over several `>` lines: the continuation is harvested, nothing else
+mk_proj c57 remote
+{ printf '# Wrapped trigger\n\n> earlierquote plain quote\n\n'
+  printf '> Trigger: wrapfirst\n> contwordone\n>\n> contwordtwo\n\n'
+  printf '> laterquote unrelated\n\ntext after\n'; } > "$MEMDIR/wrapped.md"
+run bash "$KITREL/catalog.sh" --grep wrapfirst
+{ [ "$RC" = 0 ] && has 'wrapped.md'; }; check C5.7 "the trigger line itself is still harvested (rc=$RC)" $?
+run bash "$KITREL/catalog.sh" --grep contwordtwo
+{ [ "$RC" = 0 ] && has 'wrapped.md'; }; check C5.7 "a continuation line that does not say 'trigger' is searchable (rc=$RC)" $?
+run bash "$KITREL/catalog.sh" --grep 'earlierquote|laterquote'
+{ ! has 'wrapped.md'; }; check C5.7 "RED control: blockquotes before and after the run are not harvested" $?
+# C5.8 a `>` line glued under a trigger is not always its continuation
+{ printf '# Glued\n\n> Trigger "gluedfirst"/"gluedsecond".\n> afterdotword ratified by somebody\n\n'
+  printf '> Trigger openline gluedthird /\n> gluedfourth\n> 📌 **Build log:** pinnedword\n\n'
+  printf '> Trigger openagain\n> **Label:** boldword\n'; } > "$MEMDIR/glued.md"
+run bash "$KITREL/catalog.sh" --grep gluedfourth
+{ [ "$RC" = 0 ] && has 'glued.md'; }; check C5.8 "a continuation under an open trigger line is still harvested (rc=$RC)" $?
+run bash "$KITREL/catalog.sh" --grep 'afterdotword|pinnedword|boldword'
+{ ! has 'glued.md'; }; check C5.8 "a line after a finished sentence, an emoji label and a bold label are not harvested" $?
+
 ###############################################################################
 # B1 — doctor sizes without `find -printf`; a missing tool is UNMEASURED, not ok
 ###############################################################################

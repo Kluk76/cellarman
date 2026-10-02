@@ -91,9 +91,27 @@ fi
         # is kept, untruncated: the column is the --grep haystack, and a cap
         # here made later trigger lines and long ones unreachable by search
         # (display is shortened at print time instead — see the grep mode).
+        # A trigger line also pulls in the `>` lines glued under it (a trigger
+        # wrapped over several quote lines repeats the word only on the first; a
+        # bare `>` is skipped without ending the run). The run ends at the first
+        # line that is not a `>` line, so an unrelated blockquote elsewhere in the
+        # head is never harvested. It also ends when the previous harvested line
+        # ENDED its sentence (final ".") or when the new line opens with a label
+        # (an emoji, or bold): a glued "> <emoji> Build log ..." or "> Ratified by ..."
+        # line is not trigger text.
+        # LC_ALL=C: bytes, the same under gawk, mawk and BSD awk (\360 = lead byte
+        # of a 4-byte character).
         head_block="$(head -c 6144 "$f")"
         triggers="$(printf '%s\n' "$head_block" \
-            | grep -iE '^> .*trigger' \
+            | LC_ALL=C awk '/^>/ { l = tolower($0)
+                          if (l ~ /^> .*trigger/) { on = 1; prev = $0; print; next }
+                          if (on && $0 != ">") {
+                              p = prev; sub(/[ *]+$/, "", p)
+                              if (substr(p, length(p)) == "." || substr($0, 3, 1) == "\360" || substr($0, 3, 2) == "**") on = 0
+                              else { print; prev = $0 }
+                          }
+                          next }
+                   { on = 0 }' \
             | sed 's/^> *//' | tr -d '*`' | tr '\n\t' '  ' | sed 's/ *$//')"
         title="$(printf '%s\n' "$head_block" \
             | grep -m1 '^# ' | sed 's/^# *//' | tr -d '*`' | tr '\t' ' ' | cut -c1-160)"
