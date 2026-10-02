@@ -107,7 +107,7 @@ PFS="$(sed -n 's/^pre-flight exit: //p' "$SB/out2" | tr '\n' ' ')"
 check "pass 2: the pre-flight exit after publishing, as the README states" "$EXP_PF2" "$(printf '%s' "$PFS" | awk '{print $NF}')"
 check "pass 2: the working tree is clean after the publish block" "" "$(git -C "$R" status --porcelain)"
 check "pass 2: the remote holds exactly HEAD" "$(git -C "$R" rev-parse HEAD)" "$(git --git-dir="$SB/p2.remote.git" rev-parse refs/heads/main)"
-sed 's/\x1b\[[0-9;]*m//g' "$SB/p2.tmp/pf.log" | grep -q 'CLEAR'; check "pass 2: the final pre-flight log says CLEAR" 0 "$?"
+sed "s/$(printf '\033')\[[0-9;]*m//g" "$SB/p2.tmp/pf.log" | grep -q 'CLEAR'; check "pass 2: the final pre-flight log says CLEAR" 0 "$?"
 
 echo "== the README's own words about the outcome are true =="
 grep -q 'single-clone mode' "$README"; check "README names single-clone mode" 0 "$?"

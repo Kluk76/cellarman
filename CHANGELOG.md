@@ -157,6 +157,8 @@ Read these before upgrading an existing install.
 
 ### Fixed
 
+- **`doctor.sh` register-router findings on macOS.** BSD `sed` does not read `\t` in a pattern (it matches a literal "t"), so the DIVERGENT / BODY-WITHOUT-ROUTER / ROUTER-WITHOUT-BODY / OFF-VOCABULARY detail lines were mangled there. They now use a real TAB character.
+
 Audit references are to the code audit that preceded 0.2.0.
 
 - Pre-flight: slug drift consumes `PF_DRIFT_SLUG_RE`, any initial by default (A2);

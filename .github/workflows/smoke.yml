@@ -17,19 +17,33 @@ jobs:
         os: [ubuntu-latest, macos-latest]
     steps:
       - uses: actions/checkout@v4
-      - name: Show tool versions
+      - name: Use the system bash and awk (not Homebrew's) on macOS
+        if: runner.os == 'macOS'
         run: |
-          bash --version | head -n 1
+          # Homebrew's bash 5 / gawk come first on the runner PATH; the kit is
+          # specified against /bin/bash 3.2 and the system BSD tools.
+          echo "/bin" >> "$GITHUB_PATH"
+          echo "/usr/bin" >> "$GITHUB_PATH"
+      - name: Show tool versions (what is tested)
+        run: |
+          echo "bash: $(command -v bash)"; bash --version | head -n 1
+          echo "awk:  $(command -v awk)"; awk -version 2>&1 | head -n 1 || true
+          awk --version 2>&1 | head -n 1 || true
+          echo "sed:  $(command -v sed)"; echo "grep: $(command -v grep)"
           git --version
           jq --version
-          awk --version 2>&1 | head -n 1 || true
+          echo "LANG=${LANG:-} LC_ALL=${LC_ALL:-}"
       - name: Smoke suite
+        if: always()
         run: bash tests/smoke.sh
       - name: Ports suite (sync, ledger, claims)
+        if: always()
         run: bash tests/ports.sh
       - name: Init suite (pm-kit/init.sh)
+        if: always()
         run: bash tests/init.sh
       - name: Quickstart (the README commands, run literally)
+        if: always()
         run: bash tests/quickstart.sh
 
   mawk:
@@ -44,18 +58,22 @@ jobs:
           sudo update-alternatives --set awk /usr/bin/mawk
           awk -W version 2>&1 | head -n 1
       - name: Smoke suite under mawk and the C locale
+        if: always()
         env:
           LC_ALL: C
         run: bash tests/smoke.sh
       - name: Ports suite under mawk and the C locale
+        if: always()
         env:
           LC_ALL: C
         run: bash tests/ports.sh
       - name: Init suite under mawk and the C locale
+        if: always()
         env:
           LC_ALL: C
         run: bash tests/init.sh
       - name: Quickstart under mawk and the C locale
+        if: always()
         env:
           LC_ALL: C
         run: bash tests/quickstart.sh

@@ -570,21 +570,23 @@ elif [ -f "$HR" ] && [ -d "$HD" ]; then
     _FMT="$(printf '%s\n' "$_RC" | grep '^OFF-VOCABULARY' || true)"
     N_ROUTER="$(printf '%s\n' "$_RC" | awk -F'\t' '$1=="COUNT"{n=$2} END{print n+0}')"
 
+    # BSD sed does not read \t in a pattern (it matches a literal "t"): use a real TAB.
+    _T="$(printf '\t')"
     if [ -n "$_DIV" ]; then
         fail "register router vs bodies: STATES DIVERGE. P6 reads only the router, so age and escalation follow the LEFT column:"
-        printf '%s\n' "$_DIV" | sed 's/^DIVERGENT\t/    /' | sed 's/\t/  /g'
+        printf '%s\n' "$_DIV" | sed "s/^DIVERGENT${_T}/    /" | sed "s/${_T}/  /g"
     fi
     if [ -n "$_CSR" ]; then
         fail "open items INVISIBLE to the pre-flight (in a body, NO header in the router):"
-        printf '%s\n' "$_CSR" | sed 's/^BODY-WITHOUT-ROUTER\t/    /' | sed 's/\t.*//'
+        printf '%s\n' "$_CSR" | sed "s/^BODY-WITHOUT-ROUTER${_T}/    /" | sed "s/${_T}.*//"
     fi
     if [ -n "$_RSC" ]; then
         warn "router header(s) WITHOUT a body: visible to P6, but with nowhere to receive an answer:"
-        printf '%s\n' "$_RSC" | sed 's/^ROUTER-WITHOUT-BODY\t/    /' | sed 's/\t.*//'
+        printf '%s\n' "$_RSC" | sed "s/^ROUTER-WITHOUT-BODY${_T}/    /" | sed "s/${_T}.*//"
     fi
     if [ -n "$_FMT" ]; then
         warn "header(s) OUTSIDE THE CLOSURE VOCABULARY, counted OPEN because they could not be read (' · <WORD>', WORD one of: ${ARB_CLOSED_RE}; the word GLUED to the ' · ', decoration AFTER it):"
-        printf '%s\n' "$_FMT" | sed 's/^OFF-VOCABULARY\t/    /' | sed 's/\t/  /g'
+        printf '%s\n' "$_FMT" | sed "s/^OFF-VOCABULARY${_T}/    /" | sed "s/${_T}/  /g"
     fi
     [ -z "$_DIV$_CSR$_RSC$_FMT" ] && ok "register router vs bodies: ${N_ROUTER:-0} header(s), states agree on both sides"
 fi

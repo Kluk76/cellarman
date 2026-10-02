@@ -43,7 +43,8 @@ LOGN=0
 run() { LOGN=$((LOGN+1)); OUT="$SB/log.$LOGN"; "$@" > "$OUT" 2>&1; RC=$?; }
 has()   { grep -q -- "$1" "${2:-$OUT}"; }
 lacks() { ! grep -q -- "$1" "${2:-$OUT}"; }
-strip() { sed 's/\x1b\[[0-9;]*m//g' "${1:-$OUT}" > "${1:-$OUT}.txt"; OUTT="${1:-$OUT}.txt"; }
+ESC="$(printf '\033')"   # BSD sed has no \x1b
+strip() { sed "s/${ESC}\[[0-9;]*m//g" "${1:-$OUT}" > "${1:-$OUT}.txt"; OUTT="${1:-$OUT}.txt"; }
 
 KITREL=claude-brain/pm-kit
 MEMDIR=claude-brain/agents/acme-pm-memory
@@ -1118,7 +1119,7 @@ if command -v iconv >/dev/null 2>&1; then
 else skip leftover "iconv not installed"; fi
 rm -f "$MEMDIR/accents.md"
 mk_proj pmk remote
-sed 's/^<!-- cellarman kernel: \(begin\|end\) -->$/    <!-- cellarman kernel: \1 -->/' claude-brain/agents/acme-pm.md > "$SB/agent.tmp"
+sed -E 's/^<!-- cellarman kernel: (begin|end) -->$/    <!-- cellarman kernel: \1 -->/' claude-brain/agents/acme-pm.md > "$SB/agent.tmp"
 { grep -q '^    <!-- cellarman kernel: begin' "$SB/agent.tmp" && grep -q '^    <!-- cellarman kernel: end' "$SB/agent.tmp"; }; check leftover "fixture: both marker lines are indented" $?
 cp "$SB/agent.tmp" claude-brain/agents/acme-pm.md; cp "$SB/agent.tmp" "$HOME/.claude/agents/acme-pm.md"
 git fetch -q origin
