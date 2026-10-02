@@ -966,10 +966,12 @@ SCAN="pm-kit/doctor.sh pm-kit/catalog.sh pm-kit/load-telemetry.sh pm-kit/lint-cl
 # accented Latin letters (UTF-8 lead bytes C3 and C5), anywhere in a script or template
 # shellcheck disable=SC2086
 LC_ALL=C grep -rln "$(printf '\303')\|$(printf '\305')" $SCAN > "$SB/accents.txt" 2>/dev/null
-{ [ ! -s "$SB/accents.txt" ]; }; check 10 "no accented character in any script, skeleton file or profile ($(tr '\n' ' ' < "$SB/accents.txt"))" $?
+[ ! -s "$SB/accents.txt" ]; arc=$?   # the verdict is taken BEFORE the description's command substitution: $? after it would be tr's
+check 10 "no accented character in any script, skeleton file or profile ($(tr '\n' ' ' < "$SB/accents.txt"))" "$arc"
 # shellcheck disable=SC2086
 grep -rnE 'VPS|tailnet|tsk_|next-migration|00-audit|H-<date>|<k\|l>|\[kl\]|k\+l|HORS-|CLE-RESOLUTION|OUVERT|aucun|\(1826\)|error 1[0-9][0-9][0-9]' $SCAN > "$SB/nouns.txt" 2>/dev/null
-{ [ ! -s "$SB/nouns.txt" ]; }; check 10 "no origin-project noun (VPS, tailnet, tsk_, next-migration, 00-audit, [kl], k+l, HORS-, CLE-RESOLUTION, MySQL error numbers) in the scripts ($(head -1 "$SB/nouns.txt" | cut -c1-80))" $?
+[ ! -s "$SB/nouns.txt" ]; nrc=$?
+check 10 "no origin-project noun (VPS, tailnet, tsk_, next-migration, 00-audit, [kl], k+l, HORS-, CLE-RESOLUTION, MySQL error numbers) in the scripts ($(head -1 "$SB/nouns.txt" | cut -c1-80))" "$nrc"
 # the old closure words were English-only checks of French vocabulary; none may be hardcoded
 # shellcheck disable=SC2086
 grep -rnE 'CLOS\||RÉPONDU|CADUQUE|RESOLVED\|' pm-kit/doctor.sh pm-kit/kernel/pm-preflight.sh | grep -v 'PF_ARB_CLOSED_RE\|ARB_CLOSED_RE=' > "$SB/closure.txt" 2>/dev/null
