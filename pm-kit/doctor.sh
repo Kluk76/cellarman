@@ -187,18 +187,31 @@ if [ -d "$PM_MEMORY_DIR" ] && _need "topic-file size check (6)" find wc awk sort
     TOPIC_WARN="${PM_TOPIC_WARN:-81920}"
     # `find -printf` is GNU-only (BSD find errors, the 2>/dev/null hid it and the
     # check printed "ok" unmeasured): list with -print, size with wc -c.
-    BIG=$(find "$PM_MEMORY_DIR" \
-              ${PM_ARCHIVE_DIR:+-path "$PM_ARCHIVE_DIR" -prune -o} \
-              -name '*.md' -type f -print 2>/dev/null \
-          | while IFS= read -r f; do printf '%s\t%s\n' "$(wc -c < "$f" | tr -d ' ')" "${f#"$PM_MEMORY_DIR"/}"; done \
-          | awk -F'\t' -v max="$TOPIC_WARN" '$1 > max' \
-          | sort -rn | head -10 \
-          | awk -F'\t' '{ printf "    %4d KB  %s\n", $1/1024, $2 }')
-    if [ -n "$BIG" ]; then
-        warn "topic file(s) over $((TOPIC_WARN/1024)) KB — split into a directory + pointer index (largest first):"
-        printf '%s\n' "$BIG"
+    # find runs into a temp file, OUTSIDE any pipe, so its exit status is read: in a
+    # pipeline it was lost, and a find that failed left BIG empty — "ok" unmeasured.
+    _FT="$(mktemp "${TMPDIR:-/tmp}/pm-doctor-find.XXXXXX")" || _FT=""
+    if [ -z "$_FT" ]; then
+        warn "topic-file size check (6) UNMEASURED — cannot create a temp file"
     else
-        ok "no topic file over $((TOPIC_WARN/1024)) KB"
+        find "$PM_MEMORY_DIR" \
+            ${PM_ARCHIVE_DIR:+-path "$PM_ARCHIVE_DIR" -prune -o} \
+            -name '*.md' -type f -print > "$_FT" 2>/dev/null
+        _FRC=$?
+        if [ "$_FRC" -ne 0 ]; then
+            warn "topic-file size check (6) UNMEASURED — find failed (exit $_FRC), no size was measured"
+        else
+            BIG=$(while IFS= read -r f; do printf '%s\t%s\n' "$(wc -c < "$f" | tr -d ' ')" "${f#"$PM_MEMORY_DIR"/}"; done < "$_FT" \
+                  | awk -F'\t' -v max="$TOPIC_WARN" '$1 > max' \
+                  | sort -rn | head -10 \
+                  | awk -F'\t' '{ printf "    %4d KB  %s\n", $1/1024, $2 }')
+            if [ -n "$BIG" ]; then
+                warn "topic file(s) over $((TOPIC_WARN/1024)) KB — split into a directory + pointer index (largest first):"
+                printf '%s\n' "$BIG"
+            else
+                ok "no topic file over $((TOPIC_WARN/1024)) KB"
+            fi
+        fi
+        rm -f "$_FT"
     fi
 fi
 
@@ -211,14 +224,27 @@ fi
 if [ -n "${PM_ARCHIVE_DIR:-}" ] && [ -d "$PM_ARCHIVE_DIR" ] && _need "archive retention check (7)" find wc awk; then
     ARCH_MAX="${PM_ARCHIVE_MAX:-3}"
     ARCH_GLOB="${PM_ARCHIVE_GLOB:-index-verbatim-*.md}"
-    ARCH_N=$(find "$PM_ARCHIVE_DIR" -maxdepth 1 -name "$ARCH_GLOB" -type f 2>/dev/null | wc -l)
-    ARCH_KB=$(find "$PM_ARCHIVE_DIR" -maxdepth 1 -name "$ARCH_GLOB" -type f -print 2>/dev/null \
-              | while IFS= read -r f; do wc -c < "$f"; done \
-              | awk '{ s += $1 } END { printf "%d", (s+0)/1024 }')
-    if [ "${ARCH_N:-0}" -gt "$ARCH_MAX" ]; then
-        warn "${ARCH_N} archived snapshot(s) matching '${ARCH_GLOB}' (> ${ARCH_MAX}), ${ARCH_KB} KB — they are reconstructible with 'git show <sha>:<index>'; keep the newest ${ARCH_MAX} and replace the rest with a git-show line"
+    # one find, into a temp file outside any pipe (as in check 6): its exit status
+    # is read, so a failing find is UNMEASURED instead of "archived snapshots: 0".
+    _FA="$(mktemp "${TMPDIR:-/tmp}/pm-doctor-find.XXXXXX")" || _FA=""
+    if [ -z "$_FA" ]; then
+        warn "archive retention check (7) UNMEASURED — cannot create a temp file"
     else
-        ok "archived snapshots: ${ARCH_N:-0} (<= ${ARCH_MAX}), ${ARCH_KB:-0} KB"
+        find "$PM_ARCHIVE_DIR" -maxdepth 1 -name "$ARCH_GLOB" -type f -print > "$_FA" 2>/dev/null
+        _FRC=$?
+        if [ "$_FRC" -ne 0 ]; then
+            warn "archive retention check (7) UNMEASURED — find failed (exit $_FRC), no snapshot was counted"
+        else
+            ARCH_N=$(wc -l < "$_FA" | tr -d ' ')
+            ARCH_KB=$(while IFS= read -r f; do wc -c < "$f"; done < "$_FA" \
+                      | awk '{ s += $1 } END { printf "%d", (s+0)/1024 }')
+            if [ "${ARCH_N:-0}" -gt "$ARCH_MAX" ]; then
+                warn "${ARCH_N} archived snapshot(s) matching '${ARCH_GLOB}' (> ${ARCH_MAX}), ${ARCH_KB} KB — they are reconstructible with 'git show <sha>:<index>'; keep the newest ${ARCH_MAX} and replace the rest with a git-show line"
+            else
+                ok "archived snapshots: ${ARCH_N:-0} (<= ${ARCH_MAX}), ${ARCH_KB:-0} KB"
+            fi
+        fi
+        rm -f "$_FA"
     fi
 fi
 

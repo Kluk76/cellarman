@@ -252,6 +252,18 @@ run env PATH="$SB/nofind" "$(command -v bash)" "$KITREL/doctor.sh"
 { has "check (6) UNMEASURED — required tool 'find'" && lacks 'no topic file over'; }; check B1 "a missing find is UNMEASURED, never 'ok — no topic file over' (rc=$RC)" $?
 rm -rf "$MEMDIR/big-topic.md" "$MEMDIR/index-relocated-detail"
 
+# D4.9 a find that is PRESENT but FAILS: checks 6 and 7 say UNMEASURED, never ok
+mk_proj d49 remote
+mkdir -p "$SB/failfind" "$MEMDIR/index-relocated-detail"
+printf '#!/bin/sh\necho "find: simulated failure" >&2\nexit 1\n' > "$SB/failfind/find"; chmod +x "$SB/failfind/find"
+printf 'x\n' > "$MEMDIR/index-relocated-detail/index-verbatim-1.md"
+run env PATH="$SB/failfind:$PATH" bash "$KITREL/doctor.sh"
+{ has 'topic-file size check (6) UNMEASURED — find failed (exit 1)' && lacks 'ok   — no topic file over'; }; check D4.9 "check 6: a failing find is UNMEASURED, never 'ok — no topic file over' (rc=$RC)" $?
+{ has 'archive retention check (7) UNMEASURED — find failed (exit 1)' && lacks 'ok   — archived snapshots'; }; check D4.9 "check 7: a failing find is UNMEASURED, never 'ok — archived snapshots' (rc=$RC)" $?
+run bash "$KITREL/doctor.sh"
+{ has 'ok   — no topic file over' && has 'ok   — archived snapshots: 1'; }; check D4.9 "RED control: with the real find both checks still measure and say ok" $?
+rm -rf "$MEMDIR/index-relocated-detail"
+
 ###############################################################################
 # B2 — agent-copy drift by content compare, no md5sum on the machine
 ###############################################################################
