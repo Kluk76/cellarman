@@ -105,7 +105,7 @@ gate() {
     AGENT_ID="$(str '.agent_id' agent_id)"
     # Outside a subagent there is no agent_id, and nothing here applies.
     [ -n "$AGENT_ID" ] || return 0
-    case "$AGENT_ID" in *[!A-Za-z0-9._-]*) return 0 ;; esac
+    case "$AGENT_ID" in *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0-9._-]*) return 0 ;; esac
 
     STATE_DIR="${TMPDIR:-/tmp}/cellarman-report-back-gate"
     mkdir -p "$STATE_DIR" 2>/dev/null || return 0

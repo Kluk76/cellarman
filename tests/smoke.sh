@@ -44,7 +44,7 @@ run() { LOGN=$((LOGN+1)); OUT="$SB/log.$LOGN"; "$@" > "$OUT" 2>&1; RC=$?; }
 has()   { grep -q -- "$1" "${2:-$OUT}"; }
 lacks() { ! grep -q -- "$1" "${2:-$OUT}"; }
 ESC="$(printf '\033')"   # BSD sed has no \x1b
-strip() { sed "s/${ESC}\[[0-9;]*m//g" "${1:-$OUT}" > "${1:-$OUT}.txt" || { echo "DIAG strip: $(LC_ALL=C grep -a -n '[^ -~]' "${1:-$OUT}" | LC_ALL=C grep -a -v "$ESC" | od -c | head -30)" >&2; }; OUTT="${1:-$OUT}.txt"; }
+strip() { sed "s/${ESC}\[[0-9;]*m//g" "${1:-$OUT}" > "${1:-$OUT}.txt"; OUTT="${1:-$OUT}.txt"; }
 
 KITREL=claude-brain/pm-kit
 MEMDIR=claude-brain/agents/acme-pm-memory
@@ -1127,6 +1127,19 @@ run bash "$KITREL/doctor.sh" --strict
 { [ "$RC" = 0 ] && has 'agent file carries a kernel block' && has 'kernel tokens and bindings rows agree' && has 'kernel block identical to pm-kit/PROTOCOL.md' && lacks 'no kernel block'; }; check leftover "an agent file whose marker lines are indented still has its kernel found, checked and equal to PROTOCOL.md (rc=$RC)" $?
 
 ###############################################################################
+###############################################################################
+# Portability guards: two bash 3.2 (macOS) traps that no Linux run can show
+###############################################################################
+# bash 3.2 reads any byte >= 0x80 as part of a variable name, so "$VAR— text"
+# is "unbound variable" under set -u. Braces are required before non-ASCII text.
+cd "$C" || exit 64
+HIB="$(LC_ALL=C grep -n -E '\$[A-Za-z_][A-Za-z0-9_]*[^ -~	]' pm-kit/*.sh pm-kit/kernel/*.sh skeleton/*.sh skeleton/hooks/*.sh 2>/dev/null | LC_ALL=C grep -v -E '^[^:]*:[0-9]+:[[:space:]]*#' || true)"
+{ [ -z "$HIB" ]; }; check portability "no unbraced \$VAR is followed by a non-ASCII byte (bash 3.2 reads it as part of the name) $HIB" $?
+# In a UTF-8 locale a bash glob range follows the collation order: [a-z] also
+# matches A-Y on macOS. init.sh validates the project name with explicit letters.
+RNG="$(grep -n -E '^[[:space:]]*(\*)?\[!?a-z' pm-kit/init.sh || true)"
+{ [ -z "$RNG" ]; }; check portability "init.sh validates names with explicit letters, not an [a-z] glob range $RNG" $?
+
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

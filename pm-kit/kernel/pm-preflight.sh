@@ -788,7 +788,7 @@ else
     NFMT=$(grep -c '^FMT' "$TMP/arb" 2>/dev/null || true); NFMT=${NFMT:-0}
     if [ "${NFMT:-0}" -gt 0 ]; then
       FMTIDS=$(awk -F"$(printf '\037')" '$1=="FMT"{printf "%s(%s) ", $2, $4}' "$TMP/arb")
-      warn arbitration "$NFMT header(s) OUTSIDE THE CLOSURE VOCABULARY, counted OPEN because they could not be read: $FMTIDS— closure is written ' · <WORD>' with the word GLUED to the ' · ' separator and any decoration AFTER it; <WORD> is one of: $ARB_CLOSED_RE (profile variable PF_ARB_CLOSED_RE). OFF-TEMPLATE = decoration between the separator and the word (near-certain); SUSPECT = a closure word elsewhere in the header (may be legitimate prose)."
+      warn arbitration "$NFMT header(s) OUTSIDE THE CLOSURE VOCABULARY, counted OPEN because they could not be read: ${FMTIDS}— closure is written ' · <WORD>' with the word GLUED to the ' · ' separator and any decoration AFTER it; <WORD> is one of: $ARB_CLOSED_RE (profile variable PF_ARB_CLOSED_RE). OFF-TEMPLATE = decoration between the separator and the word (near-certain); SUSPECT = a closure word elsewhere in the header (may be legitimate prose)."
     fi
     [ "$NSTALE" -gt 0 ] && warn arbitration "$NSTALE item(s) carry a declared age that disagrees with the age computed from the id (PF_ARB_DECLARED_AGE_RE): the field is decoration; delete it or generate it"
     ok arbitration "queue measured: $NOPEN open, $NSTOP past the stop threshold, $NWARN past the warn threshold"

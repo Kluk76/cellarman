@@ -65,14 +65,17 @@ done
 
 [ -n "$NAME" ] || die "--name <project> is required"
 [ -n "$DEV" ]  || die "--dev <initial> is required"
+# Explicit letters, not a range: in a UTF-8 locale a bash glob range follows the
+# collation order, where the range a-z also matches A-Y (macOS bash 3.2 measured).
+LOW=abcdefghijklmnopqrstuvwxyz
 case "$NAME" in
-  [a-z]*) ;; *) die "--name '$NAME' must start with a lowercase letter" ;;
+  [$LOW]*) ;; *) die "--name '$NAME' must start with a lowercase letter" ;;
 esac
 case "$NAME" in
-  *[!a-z0-9-]*) die "--name '$NAME' may contain only lowercase letters, digits and hyphens" ;;
+  *[!${LOW}0-9-]*) die "--name '$NAME' may contain only lowercase letters, digits and hyphens" ;;
 esac
 case "$DEV" in
-  *[!a-z0-9]*) die "--dev '$DEV' may contain only lowercase letters and digits" ;;
+  *[!${LOW}0-9]*) die "--dev '$DEV' may contain only lowercase letters and digits" ;;
 esac
 [ -d "$REPO" ] || die "--repo '$REPO' is not a directory"
 REPO="$(cd "$REPO" && pwd -P)"

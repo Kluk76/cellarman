@@ -157,6 +157,7 @@ Read these before upgrading an existing install.
 
 ### Fixed
 
+- **bash 3.2 / macOS: three latent defects.** `pm-preflight.sh` wrote `$FMTIDS— closure…`; bash 3.2 reads the first byte of the dash as part of the variable name, so the "headers outside the closure vocabulary" warning died with `unbound variable` (now `${FMTIDS}`). `init.sh` validated `--name` / `--dev` with glob ranges (`[a-z]`), which follow collation order in a UTF-8 locale and accept uppercase on macOS (now explicit letters); the agent-id check in `pm-report-back-gate.sh` had the same shape. `init.sh` also compared a logical `pwd` with `git rev-parse --show-toplevel`, which differ under `/var` -> `/private/var` (now `pwd -P`). Two new smoke cases guard the first two.
 - **`doctor.sh` register-router findings on macOS.** BSD `sed` does not read `\t` in a pattern (it matches a literal "t"), so the DIVERGENT / BODY-WITHOUT-ROUTER / ROUTER-WITHOUT-BODY / OFF-VOCABULARY detail lines were mangled there. They now use a real TAB character.
 
 Audit references are to the code audit that preceded 0.2.0.
