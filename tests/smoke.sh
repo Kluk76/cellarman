@@ -1066,6 +1066,18 @@ done
 cd "$PROJ" 2>/dev/null || true
 
 ###############################################################################
+# 17 — kernel text: the exit-code sentence names 3, and every KERNEL-MIGRATION row still finds its string
+###############################################################################
+cd "$C" || exit 64
+tr -s '\n ' '  ' < pm-kit/PROTOCOL.md > "$SB/protocol.flat"
+grep -qF -- 'The exit code means: 0, nothing found; 1, warnings or unmeasured checks; 2, at least one STOP; 3, the pre-flight did not run and nothing was measured.' "$SB/protocol.flat"; check 17 "the kernel's exit-code sentence names unmeasured checks and exit 3" $?
+lost=0; rows=0
+sed -n 's/^| [0-9][0-9]* |.*| PROTOCOL\.md (kernel): "\(.*\)" |$/\1/p' pm-kit/KERNEL-MIGRATION.md > "$SB/mig.strings"
+while IFS= read -r str; do rows=$((rows+1)); [ "$(grep -cF -- "$str" "$SB/protocol.flat")" -ge 1 ] || { lost=$((lost+1)); echo "  lost: $str"; }; done < "$SB/mig.strings"
+{ [ "$lost" = 0 ] && [ "$rows" -ge 50 ]; }; check 17 "every KERNEL-MIGRATION row's string is found in the kernel ($rows rows, $lost lost)" $?
+cd "$PROJ" 2>/dev/null || true
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

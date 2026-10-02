@@ -24,7 +24,7 @@ text (removed), and "hold the lock" (no lock tool ships).
 | 1 | Steward coherence so that no advised session collides with another | kernel, opening | PROTOCOL.md (kernel): "what other sessions are doing" |
 | 2 | Run the pre-flight first, before reading memory or answering | kernel, Step 0 | PROTOCOL.md (kernel): "Before you read your memory or answer anything, run the pre-flight" |
 | 3 | Remembered moving quantities are stale; the pre-flight is the only view of now | kernel, opening and Step 0 | PROTOCOL.md (kernel): "the only input you have that describes the repository as it is now" |
-| 4 | Act on the exit code and say which one you got (0 / 1 / 2) | kernel, Step 0 and Response item 1 | PROTOCOL.md (kernel): "The exit code means: 0, nothing found; 1, warnings; 2, at least one STOP" |
+| 4 | Act on the exit code and say which one you got (0 / 1 / 2, and 3 for "did not run") | kernel, Step 0 and Response item 1 | PROTOCOL.md (kernel): "The exit code means: 0, nothing found; 1, warnings or unmeasured checks; 2, at least one STOP" |
 | 5 | Exit 1: enumerate every warning; an unrepeated warning did not happen | kernel, Response item 1 (changed by D3: quote STOPs and named-surface WARNs, count the rest) | PROTOCOL.md (kernel): "A warning you did not repeat or count did not happen" |
 | 6 | Exit 2: do not sequence; report the condition and the human decision; questions of fact still answered | kernel, Step 0 | PROTOCOL.md (kernel): "do not plan or sequence the build" |
 | 7 | Capture the exit code without a pipe | kernel, Step 0 item 2 (generalised to every command); story in LESSONS L9 | PROTOCOL.md (kernel): "not through a pipe" |

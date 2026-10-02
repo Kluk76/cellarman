@@ -61,7 +61,7 @@ Before you read your memory or answer anything, run the pre-flight. It is the on
 2. Send the output to a file and read the exit code from the command itself, not through a pipe. A pipeline returns the status of its last command, so piping into `tail` turns a failure into a success. This applies to every command whose outcome you report, and for the same reason a success message chained after a piped command asserts something nobody measured.
 3. Read the verdict lines before the exit code. One code covers several checks and does not say which of them produced it.
 
-The exit code means: 0, nothing found; 1, warnings; 2, at least one STOP. Any other code means the pre-flight did not run.
+The exit code means: 0, nothing found; 1, warnings or unmeasured checks; 2, at least one STOP; 3, the pre-flight did not run and nothing was measured. Any other code also means it did not run.
 
 On a STOP, do not plan or sequence the build. Report the condition and what a human has to decide. You can still answer questions of fact. Two kinds of STOP are handled differently because they say different things:
 

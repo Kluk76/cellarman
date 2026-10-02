@@ -137,6 +137,8 @@ Read these before upgrading an existing install.
   table, with `${CLAIM_CMD}`, `${SESSION_PREFIX}`, `${MEMORY_DIR}`,
   `${ARBITRATION_REGISTER}`, `${PLAN_DOC}`, `${ESCALATION_POLICY}` and
   `${JOURNAL_DIR}` added. History moved to `LESSONS.md`.
+  The exit-code sentence says that 1 means warnings or unmeasured checks and that 3
+  means the pre-flight did not run and nothing was measured.
 - `README.md` rewritten for a first-time reader: a quickstart that is a test, a
   requirements list, an illustrative consult, token cost, and a Limits table that
   says which promises a named script enforces, which depend on the model, and which
