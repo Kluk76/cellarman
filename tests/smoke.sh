@@ -1009,6 +1009,23 @@ run bash tests/conf-surface.sh --conf "$SB/no-such.conf"
 cd "$PROJ" 2>/dev/null || true
 
 ###############################################################################
+# 12 — the seed index agrees with the kernel
+###############################################################################
+cd "$C" || exit 64
+SEED=skeleton/index-seed.md
+{ ! grep -qiE '^#+ .*(BUILD-STATE|RESUME|CHANGE-LOG|HEAD|NEXT-FREE|QUEUE STATE)' "$SEED" && ! grep -qE 'HEAD = <' "$SEED"; }; check 12 "the seed has no section for a moving quantity (build-state, resume point, change-log head, next-free)" $?
+{ grep -qE '^- (⛔|🔴) `<surface>`' "$SEED" && ! grep -E '^(⛔|🔴)' "$SEED" | grep -q .; }; check 12 "the seed's rails are list items naming a surface in backticks" $?
+mk_proj p12 remote
+git fetch -q origin
+run bash "$KITREL/doctor.sh" --strict
+{ [ "$RC" = 0 ] && has '0 fail(s), 0 warning(s)'; }; check 12 "the seed index passes doctor --strict with zero warnings (rc=$RC)" $?
+run bash "$KITREL/kernel/rails-index.sh"
+{ lacks 'WARN —' && [ "$RC" != 2 ]; }; check 12 "the rails miner reads the seed without a self-check warning (rc=$RC)" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ lacks 'STOP' "$OUTT" && has 'ok   memory .*doctor.sh clean' "$OUTT"; }; check 12 "the pre-flight reads the doctor as clean on the seed, no STOP (rc=$RC)" $?
+cd "$PROJ" 2>/dev/null || true
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

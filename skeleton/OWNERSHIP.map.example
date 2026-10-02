@@ -18,7 +18,8 @@
 #                       required — the one wall a RATIFIED receipt cannot open
 #            (unmapped) undescribed: WARN — describe it, or say why it has none
 #   owner    a dev initial from the profile's DEVS, or * for any/both
-#   concern  one of the profile's PF_CONCERNS (or *)
+#   concern  a short word for the kind of change (logic, schema, style, nav,
+#            access, fiscal...: your own vocabulary, no list to maintain), or *
 #   glob     repo-relative glob, or table:<name> for a data surface
 #
 # 'contested' IS NOT A FAILURE STATE. It is the honest label for a boundary
