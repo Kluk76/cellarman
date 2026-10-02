@@ -65,7 +65,12 @@ mk_proj() {
   cp "$C/pm-kit.conf.example" claude-brain/pm-kit.conf
   mkdir -p "$KITREL/profiles" && cp "$C/profiles/example.conf" "$PROFILE"
   cp "$C/skeleton/bin-pm-preflight.example.sh" bin/pm-preflight.sh && chmod +x bin/pm-preflight.sh
-  cp "$C/skeleton/agent-example.md" claude-brain/agents/acme-pm.md
+  # the agent file, kernel pasted between its markers exactly as the README does
+  awk '/^<!-- cellarman kernel: begin/{k=1} k; /^<!-- cellarman kernel: end/{k=0}' "$KITREL/PROTOCOL.md" > "$SB/kernel.$1.md"
+  awk -v kf="$SB/kernel.$1.md" '
+    /^<!-- cellarman kernel: begin/ { while ((getline l < kf) > 0) print l; skip=1; next }
+    /^<!-- cellarman kernel: end/   { skip=0; next }
+    !skip' "$C/skeleton/agent-example.md" > claude-brain/agents/acme-pm.md
   cp "$C/skeleton/index-seed.md" "$INDEX"
   mkdir -p "$HOME/.claude/agents" && cp claude-brain/agents/acme-pm.md "$HOME/.claude/agents/acme-pm.md"
   printf 'claude-brain/agents/.pm-load-log.tsv\nclaude-brain/agents/pm-catalog.tsv\nclaude-brain/pm-kit/state/\n' > .gitignore
@@ -868,6 +873,90 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths -- --odd.php; str
 { has 'WARN rails.*--odd.php' "$OUTT" && lacks 'unknown arg' "$OUTT"; }; check A9e "--paths -- --odd.php carries a path that starts with --" $?
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths src/x.php -- --odd.php; strip
 { has 'WARN rails.*--odd.php' "$OUTT"; }; check A9e "paths before and after the -- are both read" $?
+
+###############################################################################
+# 7 — doctor: agent file vs kernel (tokens, drift, placeholder), hook wiring,
+#     rails outside list items, one index in two configs, register path from
+#     the profile. Each check is run in both polarities.
+###############################################################################
+AGENT=claude-brain/agents/acme-pm.md
+# a doctor with no conf did not run: exit 3 in both modes (it used to exit 0 or 1 after printing a FAIL)
+mk_proj pd7z remote
+run bash "$KITREL/doctor.sh" "$SB/no-such.conf"
+{ [ "$RC" = 3 ] && has 'NOT RUN — conf not found'; }; check 7z "doctor with a missing conf did not run: exit 3 (rc=$RC)" $?
+run bash "$KITREL/doctor.sh" "$SB/no-such.conf" --strict
+{ [ "$RC" = 3 ]; }; check 7z "... and also under --strict (rc=$RC)" $?
+mv claude-brain/pm-kit.conf "$SB/pm-kit.conf.away"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'UNMEASURED memory.*doctor.sh did not run' "$OUTT" && lacks 'doctor.sh clean' "$OUTT"; }; check 7z "the pre-flight reports a doctor that did not run as UNMEASURED, not 'clean'" $?
+mv "$SB/pm-kit.conf.away" claude-brain/pm-kit.conf
+# (a) tokens <-> bindings rows
+mk_proj pd7a remote
+run bash "$KITREL/doctor.sh" --strict
+{ [ "$RC" = 0 ] && has 'kernel tokens and bindings rows agree' && has 'kernel block identical to pm-kit/PROTOCOL.md' && has 'no paste placeholder'; }; check 7a "a freshly pasted agent file passes tokens, drift and placeholder (rc=$RC)" $?
+grep -v '^| `${CATALOG_CMD}`' "$AGENT" > "$SB/agent.tmp" && cp "$SB/agent.tmp" "$AGENT"; cp "$AGENT" "$HOME/.claude/agents/acme-pm.md"
+run bash "$KITREL/doctor.sh" --strict
+{ [ "$RC" = 1 ] && has 'FAIL.*NO row in the bindings table.*CATALOG_CMD'; }; check 7a "a kernel token with no bindings row is a FAIL (rc=$RC)" $?
+printf '| `${NOT_IN_KERNEL}` | stale |\n' >> "$AGENT"; cp "$AGENT" "$HOME/.claude/agents/acme-pm.md"
+run bash "$KITREL/doctor.sh"
+{ has 'WARN.*never uses.*NOT_IN_KERNEL'; }; check 7a "a bindings row for a token the kernel never uses is a WARN" $?
+# (b) drift against PROTOCOL.md
+mk_proj pd7b remote
+sed 's/You advise; orchestrators build\./You advise; orchestrators build, often./' "$AGENT" > "$SB/agent.tmp" && cp "$SB/agent.tmp" "$AGENT"; cp "$AGENT" "$HOME/.claude/agents/acme-pm.md"
+run bash "$KITREL/doctor.sh"
+{ has 'WARN.*kernel drift'; }; check 7b "an edited kernel block is reported as kernel drift" $?
+# (c) placeholder
+mk_proj pd7c remote
+cp "$C/skeleton/agent-example.md" "$AGENT"; cp "$AGENT" "$HOME/.claude/agents/acme-pm.md"
+run bash "$KITREL/doctor.sh" --strict
+{ [ "$RC" = 1 ] && has 'FAIL.*PASTE-KERNEL-HERE'; }; check 7c "an agent file still carrying PASTE-KERNEL-HERE is a FAIL (rc=$RC)" $?
+# (d) hook wiring: info, never a failure
+mk_proj pd7d remote
+run bash "$KITREL/doctor.sh" --strict
+{ [ "$RC" = 0 ] && has 'info — hooks not wired.*load-telemetry.sh.*session-ledger.sh.*pm-sync.sh' && lacks 'WARN.*hooks' && lacks 'FAIL.*hooks'; }; check 7d "no settings.json: hooks reported 'not wired' as info, strict still passes (rc=$RC)" $?
+mkdir -p .claude; cp "$C/skeleton/settings.example.json" .claude/settings.json
+run bash "$KITREL/doctor.sh" --strict
+{ [ "$RC" = 0 ] && has 'ok   — hooks wired in settings: load-telemetry.sh session-ledger.sh pm-sync.sh pm-consult-nudge.sh'; }; check 7d "the shipped settings.example.json counts as fully wired (rc=$RC)" $?
+printf '{"hooks":{"PostToolUse":[{"matcher":"Read","hooks":[{"type":"command","command":"x/load-telemetry.sh"}]}]}}\n' > .claude/settings.json
+run bash "$KITREL/doctor.sh"
+{ has 'info — hooks not wired.*session-ledger.sh.*pm-sync.sh' && lacks 'optional):[^;]*load-telemetry' && has 'wired: load-telemetry.sh'; }; check 7d "a partial wiring names only the missing hooks" $?
+# (e) rails outside list items
+mk_proj pd7e remote
+printf '\n🔴 never edit `app/db.php` by hand\n\n> ⛔ `ref_users` is read by two views\n\n- ⛔ `app/ok.php` is sealed\n  🔴 continuation about `app/ok2.php` stays a rail\n' >> "$INDEX"
+run bash "$KITREL/doctor.sh"
+{ has 'WARN.*2 line(s) of the index look like rails.*not list items'; }; check 7e "a paragraph rail and a blockquote rail are found; the list item and its continuation are not (2)" $?
+mk_proj pd7e2 remote
+printf '\n- 🔴 `app/db.php` never edit by hand\n- ⛔ `ref_users` is read by two views\n\nplain prose about `app/db.php` with no severity marker\n' >> "$INDEX"
+run bash "$KITREL/doctor.sh"
+{ has 'no rail-like line outside list items'; }; check 7e "rails as list items, and prose without a marker, raise nothing" $?
+if command -v mawk >/dev/null 2>&1; then
+  mk_proj pd7e3 remote
+  printf '\n🔴 never edit `app/db.php` by hand\n' >> "$INDEX"
+  mkdir -p "$SB/awk7"; ln -sf "$(command -v mawk)" "$SB/awk7/awk"
+  run env PATH="$SB/awk7:$PATH" bash "$KITREL/doctor.sh"
+  { has 'WARN.*1 line(s) of the index look like rails'; }; check 7e "same finding under mawk" $?
+else skip 7e "mawk not installed"; fi
+# (f) PF_PM_INDEX vs PM_INDEX
+mk_proj pd7f remote
+run bash "$KITREL/doctor.sh" --strict
+{ [ "$RC" = 0 ] && has 'PM_INDEX (pm-kit.conf) and PF_PM_INDEX (profile) name the same file'; }; check 7f "the shipped configs agree on the index (rc=$RC)" $?
+prof_set PF_PM_INDEX '"claude-brain/agents/other-pm-memory.md"'
+run bash "$KITREL/doctor.sh" --strict
+{ [ "$RC" = 1 ] && has "FAIL.*PM_INDEX in pm-kit.conf is 'claude-brain/agents/acme-pm-memory.md' but PF_PM_INDEX.*other-pm-memory.md"; }; check 7f "two different index paths are a FAIL naming both (rc=$RC)" $?
+# (g) the register is the profile's PF_ARB_FILE, not a hardcoded name
+mk_proj pd7g remote
+prof_set PF_ARB_FILE '"claude-brain/agents/acme-pm-memory/open-questions.md"'
+mkdir -p "$MEMDIR/open-questions" "$MEMDIR/dev-handoff-register"
+printf '### H-20260101-a-split · waiting\n' > "$MEMDIR/open-questions.md"
+printf '### H-20260101-a-split · DONE\n' > "$MEMDIR/open-questions/b.md"
+printf '### H-20260101-a-old · waiting\n' > "$MEMDIR/dev-handoff-register.md"
+printf '### H-20260101-a-old · DONE\n' > "$MEMDIR/dev-handoff-register/b.md"
+printf '\nregister: open-questions.md open-questions/b.md dev-handoff-register.md dev-handoff-register/b.md\n' >> "$INDEX"
+run bash "$KITREL/doctor.sh"
+{ has 'FAIL.*STATES DIVERGE' && has 'a-split' && lacks 'a-old'; }; check 7g "section 12 follows PF_ARB_FILE: the declared register is compared, the old hardcoded name is not" $?
+prof_set PF_ARB_FILE '""'
+run bash "$KITREL/doctor.sh"
+{ has 'register router vs bodies: n/a' && lacks 'STATES DIVERGE'; }; check 7g "no PF_ARB_FILE: section 12 is n/a" $?
 
 ###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"

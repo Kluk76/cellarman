@@ -10,9 +10,26 @@
 # Usage:
 #   doctor.sh [conf-path] [--strict]
 #
-# Default mode always exits 0 (safe to call from hooks). --strict exits 1 if
-# any FAIL-level finding is present (index over hard budget, dangling links) —
-# for manual runs and CI.
+# EXIT CODES
+#   0  default mode: always, whatever was found (safe to call from hooks; read
+#      the "pm-doctor: WARN/FAIL" lines). --strict: no FAIL-level finding.
+#   1  --strict only: at least one FAIL-level finding (index over the hard
+#      budget, dangling links, an agent file without a kernel or with a kernel
+#      token that has no bindings row, two different index paths, divergent
+#      register states).
+#   3  DID NOT RUN, in either mode: the conf file was not found, so nothing
+#      was measured. 3 is the kit-wide code for "did not run".
+#
+# CHECKS (each prints ok / WARN / FAIL / info, or UNMEASURED when a tool is missing)
+#   1-5   index budget, long lines, dated blockquotes, dangling links, orphans
+#   6-8b  oversized topic files, archive retention, agent-file copy drift, skill mirror
+#   9-11  git sync of the memory paths, dormancy, dead links between topic files
+#   12    arbitration register: router vs bodies (PF_ARB_FILE)
+#   13    agent file: kernel present, no paste placeholder, tokens vs bindings
+#         rows, kernel identical to PROTOCOL.md
+#   14    hook wiring in settings.json (info only: hooks are optional)
+#   15    rails written outside "- " list items (the rails miner never sees them)
+#   16    PM_INDEX (pm-kit.conf) and PF_PM_INDEX (profile) name the same file
 # Started by another shell (zsh, sh)? These scripts use bash-only expansions
 # (e.g. ${VAR:+-flag "$VAR"} word-splitting) — re-exec under bash, never degrade.
 [ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
@@ -32,9 +49,8 @@ done
 CONF="${CONF:-$KIT_DIR/../pm-kit.conf}"
 
 if [ ! -f "$CONF" ]; then
-    echo "pm-doctor: FAIL — conf not found: $CONF"
-    [ "$STRICT" = 1 ] && exit 1
-    exit 0
+    echo "pm-doctor: NOT RUN — conf not found: $CONF (nothing was measured)"
+    exit 3
 fi
 # shellcheck disable=SC1090
 . "$CONF"
@@ -55,23 +71,31 @@ elif [ -z "${PM_PROFILE:-}" ] && [ -d "$KIT_DIR/profiles" ]; then
     _N=$(find "$KIT_DIR/profiles" -maxdepth 1 -name '*.conf' 2>/dev/null | wc -l | tr -d ' ')
     [ "$_N" = 1 ] && _PROFILE_FILE=$(find "$KIT_DIR/profiles" -maxdepth 1 -name '*.conf')
 fi
-ARB_CLOSED_RE=""
-ARB_ID_RE=""
-if [ -n "$_PROFILE_FILE" ]; then
-    ARB_CLOSED_RE="$( . "$_PROFILE_FILE" >/dev/null 2>&1; printf '%s' "${PF_ARB_CLOSED_RE:-}" )"
-    ARB_ID_RE="$( . "$_PROFILE_FILE" >/dev/null 2>&1; printf '%s' "${PF_ARB_ID_RE:-}" )"
-fi
+# _prof <VAR>: one profile value, read in a subshell (never leaks into this scope).
+_prof() {
+    [ -n "$_PROFILE_FILE" ] || return 0
+    ( . "$_PROFILE_FILE" >/dev/null 2>&1; eval "printf '%s' \"\${$1:-}\"" )
+}
+ARB_CLOSED_RE="$(_prof PF_ARB_CLOSED_RE)"
+ARB_ID_RE="$(_prof PF_ARB_ID_RE)"
+ARB_HEADER_RE="$(_prof PF_ARB_HEADER_RE)"
+ARB_FILE_REL="$(_prof PF_ARB_FILE)"
 [ -n "$ARB_CLOSED_RE" ] || ARB_CLOSED_RE='CLOSED|DONE|RESOLVED|ANSWERED|OBSOLETE'
 # Dates are spelled out, not {8}: mawk 1.3.4 has no interval expressions (the
 # register check below silently matched nothing under it). Same default as pm-preflight.
 [ -n "$ARB_ID_RE" ] || ARB_ID_RE='H-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[a-z]-[a-z0-9-]+'
-export ARB_CLOSED_RE ARB_ID_RE
+# Same default as pm-preflight P6: any level-3 heading, the id RE then filters.
+[ -n "$ARB_HEADER_RE" ] || ARB_HEADER_RE='^### '
+export ARB_CLOSED_RE ARB_ID_RE ARB_HEADER_RE
 
 WARNINGS=0
 FAILS=0
 warn() { echo "pm-doctor: WARN — $*"; WARNINGS=$((WARNINGS+1)); }
 fail() { echo "pm-doctor: FAIL — $*"; FAILS=$((FAILS+1)); }
 ok()   { echo "pm-doctor: ok   — $*"; }
+# info: neither a pass nor a problem (an optional piece that is simply absent).
+# Never matches the "WARN|FAIL" prefixes the pre-flight parses.
+info() { echo "pm-doctor: info — $*"; }
 # A check that shells out to a tool the machine lacks must say UNMEASURED: its
 # command's error is usually swallowed (2>/dev/null) and what remains is an
 # empty string that reads as "nothing found" — a false green. Returns 1 (after
@@ -477,96 +501,231 @@ if [ -d "$PM_MEMORY_DIR" ]; then
     fi
 fi
 
-# ── 12. Routeur ⇄ corps : comparer l'ÉTAT, pas seulement la PRÉSENCE ─────────
-# P6 de pm-preflight lit UN SEUL fichier (`PF_ARB_FILE`, le routeur) et n'y parse
-# que les lignes `### H-20…`. Depuis la découpe du 2026-08-13 les corps vivent
-# dans `dev-handoff-register/` et le routeur ne garde que les EN-TÊTES. Ce qui
-# rend ça sûr n'est donc pas UN invariant mais DEUX : tout item a son en-tête des
-# deux côtés, ET les deux en-têtes portent le MÊME état.
+# ── 12. Register router vs bodies: compare STATE, not only PRESENCE ───────────
+# pm-preflight P6 reads ONE file (PF_ARB_FILE, the router) and parses only its
+# header lines. When the bodies live in a directory of the same name (the router
+# keeps only the headers), what makes that safe is not one invariant but TWO: every
+# item has its header on both sides, AND both headers carry the SAME state.
 #
-# 🔴 CE BLOC A ÉTÉ ÉLARGI LE 2026-08-18 (arbitrage dev A, option (d) d'un
-# arbitrage de passation portant sur un gate partiel lisant une clôture
-# ornée, demandé par dev B).
-# La version d'avant ne comparait que des ENSEMBLES D'OUVERTS et ne rendait qu'un
-# `comm -13` — « présent dans un corps, absent du routeur ». Mesuré au banc, elle
-# avait trois défauts, et deux avaient déjà coûté :
-#   ① AVEUGLE à « routeur OUVERT / corps RÉPONDU » — la réponse est écrite au bon
-#     endroit, dans le bon vocabulaire, et l'item continue de VIEILLIR quand même,
-#     jusqu'à pousser vers une escalade automatisée (mail réel, écriture prod)
-#     d'une question déjà tranchée. Deux cas le 18-08 : 8 j et 11 j d'âge FANTÔME ;
-#   ② le sens inverse (routeur CLOS / corps OUVERT) était bien signalé mais avec
-#     un diagnostic FAUX — « absent du routeur » alors qu'il y EST : le lecteur
-#     part chercher un en-tête manquant qui existe. Ce sens-là est le plus grave
-#     des deux : une question RÉELLEMENT ouverte cesse d'être comptée ;
-#   ③ AVEUGLE à l'en-tête de routeur SANS corps (tout le contenu tient dans la
-#     ligne du routeur). P6 le voit, donc rien ne ment — mais l'item n'a nulle
-#     part où recevoir une réponse.
-# ⭐⭐ LE RAIL : une garde qui vérifie la PRÉSENCE d'une clé ne dit RIEN de sa
-# VALEUR — et ici c'est la valeur qui pilote l'escalade. Le mode de panne d'un
-# gate qui lit une population partielle n'est pas une alerte manquante, c'est une
-# alerte RASSURANTE sur la mauvaise population.
+# Why state and not presence: a guard that checks that a key EXISTS says nothing
+# about its VALUE, and here the value drives the escalation. The failure mode of a
+# gate that reads a partial population is not a missing alert, it is a reassuring
+# alert about the wrong population. Three defects of the presence-only version:
+#   1. blind to "router OPEN / body CLOSED": the answer is written in the right
+#      place, in the right vocabulary, and the item keeps ageing anyway, pushing
+#      toward an escalation of a question already settled;
+#   2. the opposite direction (router CLOSED / body OPEN) was flagged with a WRONG
+#      diagnosis ("absent from the router" when it is there), and it is the worse
+#      of the two: a genuinely open question stops being counted;
+#   3. blind to a router header with NO body (everything fits in the router line):
+#      P6 sees it so nothing lies, but the item has nowhere to receive an answer.
+# A CLOSED body with no router header is SILENT and must stay so: it is the normal
+# state of any archived item whose router header was removed.
 #
-# ⛔ Un corps CLOS sans en-tête au routeur est SILENCIEUX et doit le rester :
-# c'est l'état NORMAL de tout item archivé dans `clos-YYYY-MM.md`, dont l'en-tête
-# a été retiré du routeur. Faire crier là-dessus rendrait la garde inutilisable
-# le jour où elle sert.
-HR="$PM_MEMORY_DIR/dev-handoff-register.md"
-HD="$PM_MEMORY_DIR/dev-handoff-register"
-if [ -f "$HR" ] && [ -d "$HD" ]; then
-    # Un seul passage awk : le routeur d'abord, les corps ensuite, départagés par
-    # FILENAME (⛔ pas par ARGIND, qui est une extension gawk et rendrait la
-    # garde muette sous mawk — le cas exact contre lequel elle existe).
+# Paths: the router is PF_ARB_FILE (profile, repo-relative); the bodies directory
+# is the router's path without ".md". With no PF_ARB_FILE the check is n/a.
+HR=""
+[ -n "$ARB_FILE_REL" ] && HR="$REPO_ROOT/$ARB_FILE_REL"
+HD="${HR%.md}"
+if [ -z "$HR" ]; then
+    ok "register router vs bodies: n/a (no arbitration register declared: PF_ARB_FILE is empty)"
+elif [ -f "$HR" ] && [ -d "$HD" ]; then
+    # One awk pass: the router first, then the bodies, told apart by FILENAME
+    # (never by ARGIND, a gawk extension that would make the guard mute under mawk,
+    # the exact case it exists against).
     _RC="$(awk -v RFILE="$HR" '
-      BEGIN { idre = ENVIRON["ARB_ID_RE"]; cre = ENVIRON["ARB_CLOSED_RE"] }
-      /^### H-20/ {
+      BEGIN { hre = ENVIRON["ARB_HEADER_RE"]; idre = ENVIRON["ARB_ID_RE"]; cre = ENVIRON["ARB_CLOSED_RE"] }
+      $0 ~ hre {
         if (!match($0, idre)) next
         id = substr($0, RSTART, RLENGTH)
         # SAME closure vocabulary as pm-preflight P6 (profile variable
         # PF_ARB_CLOSED_RE): here it covers what P6 cannot see, the BODY headers.
         # No ASCII apostrophe in this block: it lives between shell single quotes.
-        st = ($0 ~ ("· *(" cre ")")) ? "clos" : "ouvert"
-        if (st == "ouvert") {
-          if ($0 ~ ("· *[^A-Za-z0-9]* *(" cre ")")) f[id]="HORS-GABARIT"
+        st = ($0 ~ ("· *(" cre ")")) ? "closed" : "open"
+        if (st == "open") {
+          if ($0 ~ ("· *[^A-Za-z0-9]* *(" cre ")")) f[id]="OFF-TEMPLATE"
           else if ($0 ~ ("(" cre ")"))              f[id]="SUSPECT"
         }
         if (FILENAME == RFILE) {
-          if (id in r && r[id] != st) r[id] = "CONFLIT-INTERNE"; else r[id] = st
+          if (id in r && r[id] != st) r[id] = "INTERNAL-CONFLICT"; else r[id] = st
+          nrouter++
         } else {
-          if (id in b && b[id] != st) b[id] = "CONFLIT-INTERNE"; else b[id] = st
+          if (id in b && b[id] != st) b[id] = "INTERNAL-CONFLICT"; else b[id] = st
         }
       }
       END {
         for (id in r) {
-          if (!(id in b))      { print "ROUTEUR-SANS-CORPS\t" id "\t" r[id]; continue }
-          if (r[id] != b[id])    print "DIVERGENT\t" id "\trouteur=" r[id] "\tcorps=" b[id]
+          if (!(id in b))      { print "ROUTER-WITHOUT-BODY\t" id "\t" r[id]; continue }
+          if (r[id] != b[id])    print "DIVERGENT\t" id "\trouter=" r[id] "\tbody=" b[id]
         }
-        for (id in b) if (!(id in r) && b[id] == "ouvert") print "CORPS-SANS-ROUTEUR\t" id "\t" b[id]
-        for (id in f) print "HORS-VOCABULAIRE\t" id "\t" f[id] | "sort"
+        for (id in b) if (!(id in r) && b[id] == "open") print "BODY-WITHOUT-ROUTER\t" id "\t" b[id]
+        for (id in f) print "OFF-VOCABULARY\t" id "\t" f[id] | "sort"
+        print "COUNT\t" nrouter + 0
       }' "$HR" "$HD"/*.md 2>/dev/null)"
 
     _DIV="$(printf '%s\n' "$_RC" | grep '^DIVERGENT' || true)"
-    _CSR="$(printf '%s\n' "$_RC" | grep '^CORPS-SANS-ROUTEUR' || true)"
-    _RSC="$(printf '%s\n' "$_RC" | grep '^ROUTEUR-SANS-CORPS' || true)"
-    _FMT="$(printf '%s\n' "$_RC" | grep '^HORS-VOCABULAIRE' || true)"
-    N_ROUTEUR=$(grep -c '^### H-20' "$HR" 2>/dev/null || echo 0)
+    _CSR="$(printf '%s\n' "$_RC" | grep '^BODY-WITHOUT-ROUTER' || true)"
+    _RSC="$(printf '%s\n' "$_RC" | grep '^ROUTER-WITHOUT-BODY' || true)"
+    _FMT="$(printf '%s\n' "$_RC" | grep '^OFF-VOCABULARY' || true)"
+    N_ROUTER="$(printf '%s\n' "$_RC" | awk -F'\t' '$1=="COUNT"{n=$2} END{print n+0}')"
 
     if [ -n "$_DIV" ]; then
-        fail "routeur ⇄ corps : ÉTATS DIVERGENTS — P6 ne lit QUE le routeur, donc l'âge et l'escalade suivent la colonne de GAUCHE :"
+        fail "register router vs bodies: STATES DIVERGE. P6 reads only the router, so age and escalation follow the LEFT column:"
         printf '%s\n' "$_DIV" | sed 's/^DIVERGENT\t/    /' | sed 's/\t/  /g'
     fi
     if [ -n "$_CSR" ]; then
-        fail "arbitrages ouverts INVISIBLES au pré-vol (dans un corps, AUCUN en-tête au routeur) :"
-        printf '%s\n' "$_CSR" | sed 's/^CORPS-SANS-ROUTEUR\t/    /' | sed 's/\t.*//'
+        fail "open items INVISIBLE to the pre-flight (in a body, NO header in the router):"
+        printf '%s\n' "$_CSR" | sed 's/^BODY-WITHOUT-ROUTER\t/    /' | sed 's/\t.*//'
     fi
     if [ -n "$_RSC" ]; then
-        warn "en-tête(s) de routeur SANS corps — visibles de P6, mais sans endroit où recevoir une réponse :"
-        printf '%s\n' "$_RSC" | sed 's/^ROUTEUR-SANS-CORPS\t/    /' | sed 's/\t.*//'
+        warn "router header(s) WITHOUT a body: visible to P6, but with nowhere to receive an answer:"
+        printf '%s\n' "$_RSC" | sed 's/^ROUTER-WITHOUT-BODY\t/    /' | sed 's/\t.*//'
     fi
     if [ -n "$_FMT" ]; then
-        warn "header(s) OUTSIDE THE CLOSURE VOCABULARY — counted OPEN because they could not be read (' · <WORD>', WORD one of: ${ARB_CLOSED_RE}; the word GLUED to the ' · ', decoration AFTER it):"
-        printf '%s\n' "$_FMT" | sed 's/^HORS-VOCABULAIRE\t/    /' | sed 's/\t/  /g'
+        warn "header(s) OUTSIDE THE CLOSURE VOCABULARY, counted OPEN because they could not be read (' · <WORD>', WORD one of: ${ARB_CLOSED_RE}; the word GLUED to the ' · ', decoration AFTER it):"
+        printf '%s\n' "$_FMT" | sed 's/^OFF-VOCABULARY\t/    /' | sed 's/\t/  /g'
     fi
-    [ -z "$_DIV$_CSR$_RSC$_FMT" ] && ok "routeur ⇄ corps: ${N_ROUTEUR} en-tête(s), états concordants des deux côtés"
+    [ -z "$_DIV$_CSR$_RSC$_FMT" ] && ok "register router vs bodies: ${N_ROUTER:-0} header(s), states agree on both sides"
+fi
+
+# ── 13. Agent file vs the kernel (tokens, drift, placeholder) ────────────────
+# Three checks on the agent file that carries the kernel. The file checked is the
+# repository copy (PM_AGENT_CANONICAL), else the installed one.
+#   (a) every ${TOKEN} inside the kernel markers has a row in the bindings table,
+#       and every row names a token the kernel uses. A token without a row fails
+#       quietly: the model reads the table and does the lookup.
+#   (b) the kernel block is byte-identical to the one in PROTOCOL.md (kernel drift).
+#   (c) the paste placeholder is gone.
+_AGENT_FILE=""
+if [ -f "${PM_AGENT_CANONICAL:-/nonexistent}" ]; then _AGENT_FILE="$PM_AGENT_CANONICAL"
+elif [ -f "${PM_AGENT_INSTALLED:-/nonexistent}" ]; then _AGENT_FILE="$PM_AGENT_INSTALLED"; fi
+_kernel_block() { awk '/^<!-- cellarman kernel: begin/{k=1} k{print} /^<!-- cellarman kernel: end/{k=0}' "$1"; }
+if [ -z "$_AGENT_FILE" ]; then
+    : # check 8 already said the agent definition is not installed
+elif _need "agent file checks (13)" awk grep sort comm cmp mktemp; then
+    _AF_TMP="$(mktemp -d "${TMPDIR:-/tmp}/pm-doctor.XXXXXX")" || _AF_TMP=""
+    if [ -z "$_AF_TMP" ]; then
+        warn "agent file checks (13) UNMEASURED — cannot create a temp dir"
+    else
+        _kernel_block "$_AGENT_FILE" > "$_AF_TMP/kernel"
+        if grep -q 'PASTE-KERNEL-HERE' "$_AGENT_FILE"; then
+            fail "agent file $_AGENT_FILE still carries the PASTE-KERNEL-HERE placeholder: the PM has no protocol (paste the kernel block of pm-kit/PROTOCOL.md between the two markers)"
+        elif [ ! -s "$_AF_TMP/kernel" ]; then
+            fail "agent file $_AGENT_FILE has no kernel block (no '<!-- cellarman kernel: begin -->' ... 'end -->' markers)"
+        else
+            ok "agent file carries a kernel block, no paste placeholder"
+            # (a) tokens vs bindings rows
+            grep -oE '\$\{[A-Z_]+\}' "$_AF_TMP/kernel" | sort -u > "$_AF_TMP/tok-kernel"
+            awk '/^<!-- cellarman kernel: end/{k=1; next} k' "$_AGENT_FILE" \
+                | grep -oE '^\| `\$\{[A-Z_]+\}`' | grep -oE '\$\{[A-Z_]+\}' | sort -u > "$_AF_TMP/tok-table"
+            _NOROW="$(comm -23 "$_AF_TMP/tok-kernel" "$_AF_TMP/tok-table" | tr '\n' ' ')"
+            _NOUSE="$(comm -13 "$_AF_TMP/tok-kernel" "$_AF_TMP/tok-table" | tr '\n' ' ')"
+            if [ -n "$_NOROW" ]; then
+                fail "kernel token(s) with NO row in the bindings table of $_AGENT_FILE: ${_NOROW}— a token without a row fails quietly"
+            fi
+            if [ -n "$_NOUSE" ]; then
+                warn "bindings row(s) for token(s) the kernel never uses: ${_NOUSE}— stale row, or the kernel text was edited"
+            fi
+            [ -z "$_NOROW$_NOUSE" ] && ok "kernel tokens and bindings rows agree ($(wc -l < "$_AF_TMP/tok-kernel" | tr -d ' ') tokens)"
+            # (b) kernel drift against PROTOCOL.md
+            if [ -f "$KIT_DIR/PROTOCOL.md" ]; then
+                _kernel_block "$KIT_DIR/PROTOCOL.md" > "$_AF_TMP/kernel-ref"
+                if [ ! -s "$_AF_TMP/kernel-ref" ]; then
+                    warn "kernel drift check (13b) UNMEASURED — $KIT_DIR/PROTOCOL.md has no kernel markers"
+                elif cmp -s "$_AF_TMP/kernel" "$_AF_TMP/kernel-ref"; then
+                    ok "kernel block identical to pm-kit/PROTOCOL.md"
+                else
+                    warn "kernel drift: the kernel block in $_AGENT_FILE differs from pm-kit/PROTOCOL.md — re-paste it (the kernel is never edited in place) and re-copy the agent file"
+                fi
+            else
+                warn "kernel drift check (13b) UNMEASURED — $KIT_DIR/PROTOCOL.md not found"
+            fi
+        fi
+        rm -rf "$_AF_TMP"
+    fi
+fi
+
+# ── 14. Hook wiring (informational: hooks are optional) ──────────────────────
+# A hook cannot report its own absence and no other script reads settings.json,
+# so this is the one place that can say which of the hooks the kit ships are wired.
+# "Not wired" is INFO, never a failure. Project settings, local settings and the
+# user's settings are all consulted; the match is by script name.
+_HOOK_FILES=""
+for _sf in "$REPO_ROOT/.claude/settings.json" "$REPO_ROOT/.claude/settings.local.json" "${HOME:-/nonexistent}/.claude/settings.json"; do
+    [ -f "$_sf" ] && _HOOK_FILES="$_HOOK_FILES $_sf"
+done
+_HOOK_NOT=""; _HOOK_YES=""
+for _h in load-telemetry.sh session-ledger.sh pm-sync.sh pm-consult-nudge.sh; do
+    _w=0
+    # shellcheck disable=SC2086
+    [ -n "$_HOOK_FILES" ] && grep -qF -- "$_h" $_HOOK_FILES 2>/dev/null && _w=1
+    if [ "$_w" = 1 ]; then _HOOK_YES="$_HOOK_YES $_h"; else _HOOK_NOT="$_HOOK_NOT $_h"; fi
+done
+if [ -z "$_HOOK_NOT" ]; then
+    ok "hooks wired in settings:${_HOOK_YES}"
+else
+    info "hooks not wired in .claude/settings.json (optional):${_HOOK_NOT} — see README, Hooks (skeleton/settings.example.json)${_HOOK_YES:+; wired:$_HOOK_YES}"
+fi
+
+# ── 15. Rails written outside list items (the miner's blind spot) ────────────
+# kernel/rails-index.sh mines only "- " list items (and their indented
+# continuations). A rail written as a paragraph, a blockquote or an indented block
+# with no list item above it is recorded but NEVER indexed, so a pre-flight on its
+# surface finds nothing, which reads as "no rail". This lists lines of the index
+# that carry a severity marker AND a backticked artefact (file or table, by the
+# profile's own patterns) yet are not in a list item.
+_SEV_MARKERS="$(_prof PF_SEVERITY_MARKERS)"
+_FILE_RE="$(_prof PF_ARTEFACT_FILE_RE)"; [ -n "$_FILE_RE" ] || _FILE_RE='[.](php|js|sh|css|sql|ts|py|md|json|yml|yaml)$'
+_TABLE_RE="$(_prof PF_ARTEFACT_TABLE_RE)"
+if [ -f "$PM_INDEX" ] && [ -n "$_SEV_MARKERS" ] && _need "rails outside list items (15)" awk; then
+    _OUTSIDE="$(MARKERS="$_SEV_MARKERS" FILE_RE="$_FILE_RE" TABLE_RE="$_TABLE_RE" awk '
+      BEGIN {
+        n = split(ENVIRON["MARKERS"], ml, "\n")
+        for (i = 1; i <= n; i++) { m = ml[i]; k = index(m, "|"); if (k > 1) mk[++nm] = substr(m, 1, k - 1) }
+        fre = ENVIRON["FILE_RE"]; tre = ENVIRON["TABLE_RE"]
+      }
+      /^```/ { fence = !fence; next }
+      fence { next }
+      substr($0, 1, 2) == "- " { rec = 1; next }
+      rec && /^[ \t]+[^ \t]/ { next }
+      { rec = 0 }
+      /^#/ { next }
+      /^[ \t]*$/ { next }
+      {
+        has = 0
+        for (i = 1; i <= nm; i++) if (index($0, mk[i]) > 0) { has = 1; break }
+        if (!has) next
+        s = $0; art = 0
+        while ((p1 = index(s, "`")) > 0) {
+          rest = substr(s, p1 + 1); p2 = index(rest, "`")
+          if (p2 == 0) break
+          c = substr(rest, 1, p2 - 1); s = substr(rest, p2 + 1)
+          if (c != "" && (c ~ fre || (tre != "" && c ~ tre))) { art = 1; break }
+        }
+        if (art) { printf "%d ", NR; cnt++ }
+      }
+      END { if (cnt) printf "\n%d\n", cnt }' "$PM_INDEX")"
+    if [ -n "$_OUTSIDE" ]; then
+        _OUT_LINES="$(printf '%s\n' "$_OUTSIDE" | head -1)"
+        _OUT_N="$(printf '%s\n' "$_OUTSIDE" | tail -1)"
+        warn "${_OUT_N} line(s) of the index look like rails (severity marker + backticked artefact) but are not list items, so the rails miner never indexes them. Rewrite each as a '- ' item. Lines: ${_OUT_LINES}"
+    else
+        ok "no rail-like line outside list items in the index"
+    fi
+fi
+
+# ── 16. One index, named the same in both configs ────────────────────────────
+# pm-kit.conf (PM_INDEX, absolute) and the profile (PF_PM_INDEX, repo-relative)
+# both name "the index". When they name different files, the budgets are measured
+# on one and the rails are mined from the other, silently.
+_PFI="$(_prof PF_PM_INDEX)"
+if [ -n "$_PFI" ] && [ -n "${PM_INDEX:-}" ]; then
+    _A="${PM_INDEX#"$REPO_ROOT"/}"; _A="${_A#./}"; _B="${_PFI#./}"
+    if [ "$_A" = "$_B" ]; then
+        ok "PM_INDEX (pm-kit.conf) and PF_PM_INDEX (profile) name the same file"
+    else
+        fail "PM_INDEX in pm-kit.conf is '$_A' but PF_PM_INDEX in the profile is '$_B': the budgets are measured on one file and the rails mined from the other"
+    fi
 fi
 
 echo "pm-doctor: ${FAILS} fail(s), ${WARNINGS} warning(s)"

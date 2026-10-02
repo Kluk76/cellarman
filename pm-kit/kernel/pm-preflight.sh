@@ -810,8 +810,12 @@ elif [ -x "$DOCTOR" ]; then
   # summary text, and STOPped on a doctor that reported "0 fail(s)". The STOP
   # quotes the doctor's own FAIL line(s) — a hard-coded cause sends the reader
   # chasing the wrong problem.
-  DOUT=$("$DOCTOR" 2>/dev/null | grep -E '^pm-doctor: (WARN|FAIL) ' || true)
-  if [ -n "$DOUT" ]; then
+  # The doctor's exit code is read from the command itself, never through a pipe.
+  DALL=$("$DOCTOR" 2>/dev/null); DRC=$?
+  DOUT=$(printf '%s\n' "$DALL" | grep -E '^pm-doctor: (WARN|FAIL) ' || true)
+  if [ "$DRC" = 3 ]; then
+    unmeasured memory "doctor.sh did not run (exit 3): $(printf '%s\n' "$DALL" | sed -n 's/^pm-doctor: NOT RUN — //p' | head -1)"
+  elif [ -n "$DOUT" ]; then
     [ "$DO_JSON" = 1 ] || printf '%s\n' "$DOUT" | sed 's/^/         /'
     DFAIL=$(printf '%s\n' "$DOUT" | awk '/^pm-doctor: FAIL /{ sub(/^pm-doctor: FAIL — /, ""); printf "%s%s", (n++ ? " · " : ""), $0 }')
     [ -n "$DFAIL" ] && stop memory "doctor.sh FAIL: $DFAIL"
