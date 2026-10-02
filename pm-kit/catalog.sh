@@ -30,6 +30,25 @@ set -u
 KIT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$KIT_DIR/../.." && pwd)"
 
+# Canonical path, with a fallback for systems whose `realpath` is absent (older
+# macOS) or lacks GNU options: follow symlinks with plain `readlink`, then
+# resolve the directory with `pwd -P`. No `readlink -f`, no `realpath -q`.
+_realpath() {
+    local p="$1" l n=0 d
+    if command -v realpath >/dev/null 2>&1 && realpath "$p" 2>/dev/null; then return 0; fi
+    while [ -L "$p" ] && [ "$n" -lt 40 ]; do
+        l="$(readlink "$p")" || return 1
+        case "$l" in /*) p="$l" ;; *) p="$(dirname "$p")/$l" ;; esac
+        n=$((n + 1))
+    done
+    if [ -d "$p" ]; then
+        (cd "$p" 2>/dev/null && pwd -P)
+    else
+        d="$(cd "$(dirname "$p")" 2>/dev/null && pwd -P)" || return 1
+        printf '%s/%s\n' "$d" "$(basename "$p")"
+    fi
+}
+
 MODE=gen
 PATTERN=""
 CONF=""
@@ -50,7 +69,7 @@ CATALOG="${PM_CATALOG:-$(dirname "$PM_INDEX")/pm-catalog.tsv}"
 # A missing memory dir must be an error, not "-1 topic files" after a realpath
 # failure that the pipeline below swallowed.
 [ -d "${PM_MEMORY_DIR:-}" ] || { echo "pm-catalog: memory dir not found: ${PM_MEMORY_DIR:-<PM_MEMORY_DIR unset>}" >&2; exit 1; }
-MEM_DIR="$(realpath "$PM_MEMORY_DIR")"
+MEM_DIR="$(_realpath "$PM_MEMORY_DIR")" || { echo "pm-catalog: cannot resolve $PM_MEMORY_DIR" >&2; exit 1; }
 
 # Pre-aggregate the load log once: relpath -> "count \t last-date".
 LOADS_TMP="$(mktemp)"

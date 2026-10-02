@@ -84,6 +84,13 @@ mk_nopgrep() {
   printf '#!/bin/sh\nfor a in "$@"; do case "$a" in -P|-[a-zA-Z]*P*) echo "grep: invalid option -- P" >&2; exit 2 ;; esac; done\nexec %s "$@"\n' "$(command -v grep)" > "$SB/nopgrep/grep"
   chmod +x "$SB/nopgrep/grep"
 }
+# mk_toolpath <dir> <tool...>: a PATH holding ONLY the named tools (symlinks) — to prove what a
+# kit script does when a tool is absent. Unknown/missing tools are skipped silently.
+mk_toolpath() {
+  local d="$1" t w; shift; rm -rf "$d"; mkdir -p "$d"
+  for t in "$@"; do w="$(command -v "$t" 2>/dev/null)" && [ -x "$w" ] && ln -sf "$w" "$d/$t"; done
+}
+COMMON_TOOLS="bash sh env find sort wc date head tail grep sed tr cut awk mktemp rm cat dirname basename readlink printf mv cp ls comm uniq stat touch git jq"
 commit_all() { git add -- . && git commit -q -m "${1:-state}" && { [ ! -d "$REMOTE" ] || git push -q > /dev/null 2>&1; }; }
 
 ###############################################################################
@@ -153,6 +160,22 @@ printf '2026-10-01\tjournal.md\n2026-10-02\tjournal.md\n' > claude-brain/agents/
 mk_nopgrep
 run env PATH="$SB/nopgrep:$PATH" bash "$KITREL/catalog.sh" --grep journal
 { [ "$RC" = 0 ] && has 'loads:2 last:2026-10-02'; }; check B3 "catalog reads load counts from the log with a -P-less grep (rc=$RC)" $?
+
+###############################################################################
+# B4 — no `realpath` on the machine: catalog and the telemetry hook still work
+###############################################################################
+mk_toolpath "$SB/norealpath" $COMMON_TOOLS
+{ [ ! -e "$SB/norealpath/realpath" ]; }; check B4 "fixture PATH really has no realpath" $?
+run env PATH="$SB/norealpath" "$(command -v bash)" "$KITREL/catalog.sh"
+{ [ "$RC" = 0 ] && has 'topic files ->' && lacks 'not found'; }; check B4 "catalog works without realpath (rc=$RC)" $?
+if [ -x "$SB/norealpath/jq" ]; then
+  ln -sfn "$PROJ/$MEMDIR" "$SB/link-mem"; : > claude-brain/agents/.pm-load-log.tsv
+  printf '{"tool_input":{"file_path":"%s/link-mem/journal.md"}}' "$SB" > "$SB/hook.json"
+  run env PATH="$SB/norealpath" "$(command -v bash)" "$KITREL/load-telemetry.sh" < "$SB/hook.json"
+  { [ "$RC" = 0 ] && grep -q "${TAB}journal.md\$" claude-brain/agents/.pm-load-log.tsv; }; check B4 "telemetry hook records a symlinked read without realpath (rc=$RC)" $?
+else
+  skip B4 "jq not installed (telemetry hook case)"
+fi
 
 ###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"

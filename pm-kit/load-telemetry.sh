@@ -11,6 +11,25 @@
 [ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
 set -u
 
+# Canonical path, with a fallback for systems whose `realpath` is absent (older
+# macOS) or lacks GNU options: follow symlinks with plain `readlink`, then
+# resolve the directory with `pwd -P`. No `readlink -f`, no `realpath -q`.
+_realpath() {
+    local p="$1" l n=0 d
+    if command -v realpath >/dev/null 2>&1 && realpath "$p" 2>/dev/null; then return 0; fi
+    while [ -L "$p" ] && [ "$n" -lt 40 ]; do
+        l="$(readlink "$p")" || return 1
+        case "$l" in /*) p="$l" ;; *) p="$(dirname "$p")/$l" ;; esac
+        n=$((n + 1))
+    done
+    if [ -d "$p" ]; then
+        (cd "$p" 2>/dev/null && pwd -P)
+    else
+        d="$(cd "$(dirname "$p")" 2>/dev/null && pwd -P)" || return 1
+        printf '%s/%s\n' "$d" "$(basename "$p")"
+    fi
+}
+
 KIT_DIR="$(cd "$(dirname "$0")" && pwd)"
 REPO_ROOT="$(cd "$KIT_DIR/../.." && pwd)"
 CONF="$KIT_DIR/../pm-kit.conf"
@@ -23,8 +42,8 @@ FILE_PATH="$(jq -r '.tool_input.file_path // empty' 2>/dev/null)"
 
 # Canonicalize BOTH sides: the PM reads via a ~/.claude/agents symlink, so a
 # raw prefix match on the repo path would miss every load.
-REAL_FILE="$(realpath -q "$FILE_PATH" 2>/dev/null)" || exit 0
-REAL_DIR="$(realpath -q "$PM_MEMORY_DIR" 2>/dev/null)" || exit 0
+REAL_FILE="$(_realpath "$FILE_PATH")" || exit 0
+REAL_DIR="$(_realpath "$PM_MEMORY_DIR")" || exit 0
 
 case "$REAL_FILE" in
     "$REAL_DIR"/*)
