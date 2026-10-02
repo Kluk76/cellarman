@@ -219,10 +219,15 @@ _norm_agent_def() {
     fi
 }
 if [ -f "$PM_AGENT_CANONICAL" ] && [ -f "$PM_AGENT_INSTALLED" ]; then
-    if [ "$(_norm_agent_def "$PM_AGENT_CANONICAL" | md5sum)" != "$(md5sum < "$PM_AGENT_INSTALLED")" ]; then
-        warn "agent definition drift: $PM_AGENT_INSTALLED != $PM_AGENT_CANONICAL (re-copy / re-run bootstrap)"
-    else
-        ok "agent definition copies in sync"
+    # Compared with `cmp -s`, not a checksum tool: where md5sum is absent both
+    # sides of the old comparison were empty strings and every pair read "in sync".
+    if _need "agent definition drift check (8)" cmp; then
+        _norm_agent_def "$PM_AGENT_CANONICAL" | cmp -s - "$PM_AGENT_INSTALLED"; _CMP_RC=$?
+        case "$_CMP_RC" in
+            0) ok "agent definition copies in sync" ;;
+            1) warn "agent definition drift: $PM_AGENT_INSTALLED != $PM_AGENT_CANONICAL (re-copy / re-run bootstrap)" ;;
+            *) warn "agent definition drift check (8) UNMEASURED — cmp failed (rc=$_CMP_RC)" ;;
+        esac
     fi
 elif [ ! -f "$PM_AGENT_INSTALLED" ]; then
     warn "agent definition not installed at $PM_AGENT_INSTALLED"
@@ -240,7 +245,8 @@ fi
 # next publish deletes it. Those are the only ones worth waking someone for, so
 # they are counted and named separately.
 if [ -n "${PM_SKILLS_LIVE:-}" ] && [ -n "${PM_SKILLS_MIRROR:-}" ] \
-   && [ -d "$PM_SKILLS_LIVE" ] && [ -d "$PM_SKILLS_MIRROR" ]; then
+   && [ -d "$PM_SKILLS_LIVE" ] && [ -d "$PM_SKILLS_MIRROR" ] \
+   && _need "skill mirror drift check (8b)" cmp find; then
     SK_AT_RISK=""; SK_AT_RISK_N=0; SK_STALE_N=0; SK_ONLY_MIRROR=""
     while IFS= read -r M; do
         REL="${M#"$PM_SKILLS_MIRROR"/}"
@@ -252,7 +258,7 @@ if [ -n "${PM_SKILLS_LIVE:-}" ] && [ -n "${PM_SKILLS_MIRROR:-}" ] \
             SK_ONLY_MIRROR="$SK_ONLY_MIRROR $REL"
             continue
         fi
-        [ "$(md5sum < "$M")" = "$(md5sum < "$L")" ] && continue
+        cmp -s "$M" "$L" && continue
         if [ "$M" -nt "$L" ]; then
             SK_AT_RISK_N=$((SK_AT_RISK_N + 1))
             SK_AT_RISK="$SK_AT_RISK $REL"

@@ -90,7 +90,7 @@ mk_toolpath() {
   local d="$1" t w; shift; rm -rf "$d"; mkdir -p "$d"
   for t in "$@"; do w="$(command -v "$t" 2>/dev/null)" && [ -x "$w" ] && ln -sf "$w" "$d/$t"; done
 }
-COMMON_TOOLS="bash sh env find sort wc date head tail grep sed tr cut awk mktemp rm cat dirname basename readlink printf mv cp ls comm uniq stat touch git jq"
+COMMON_TOOLS="bash sh env cmp find sort wc date head tail grep sed tr cut awk mktemp rm cat dirname basename readlink printf mv cp ls comm uniq stat touch git jq"
 commit_all() { git add -- . && git commit -q -m "${1:-state}" && { [ ! -d "$REMOTE" ] || git push -q > /dev/null 2>&1; }; }
 
 ###############################################################################
@@ -208,6 +208,22 @@ mk_toolpath "$SB/nofind" $(for t in $COMMON_TOOLS; do [ "$t" = find ] || printf 
 run env PATH="$SB/nofind" "$(command -v bash)" "$KITREL/doctor.sh"
 { has "check (6) UNMEASURED — required tool 'find'" && lacks 'no topic file over'; }; check B1 "a missing find is UNMEASURED, never 'ok — no topic file over' (rc=$RC)" $?
 rm -rf "$MEMDIR/big-topic.md" "$MEMDIR/index-relocated-detail"
+
+###############################################################################
+# B2 — agent-copy drift by content compare, no md5sum on the machine
+###############################################################################
+mk_proj pb2 remote
+mk_toolpath "$SB/nomd5" $COMMON_TOOLS
+{ [ ! -e "$SB/nomd5/md5sum" ]; }; check B2 "fixture PATH really has no md5sum" $?
+run env PATH="$SB/nomd5" "$(command -v bash)" "$KITREL/doctor.sh"
+{ has 'agent definition copies in sync'; }; check B2 "identical agent copies read in sync without md5sum" $?
+printf '\nlocally edited\n' >> "$HOME/.claude/agents/acme-pm.md"
+run env PATH="$SB/nomd5" "$(command -v bash)" "$KITREL/doctor.sh"
+{ has 'agent definition drift:' && lacks 'copies in sync'; }; check B2 "a differing installed copy is flagged without md5sum" $?
+mk_toolpath "$SB/nocmp" $(for t in $COMMON_TOOLS; do [ "$t" = cmp ] || printf '%s ' "$t"; done)
+run env PATH="$SB/nocmp" "$(command -v bash)" "$KITREL/doctor.sh"
+{ has "check (8) UNMEASURED — required tool 'cmp'" && lacks 'copies in sync'; }; check B2 "a missing cmp is UNMEASURED, never 'in sync'" $?
+cp claude-brain/agents/acme-pm.md "$HOME/.claude/agents/acme-pm.md"
 
 ###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
