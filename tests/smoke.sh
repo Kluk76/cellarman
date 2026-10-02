@@ -423,7 +423,7 @@ HR="$MEMDIR/dev-handoff-register.md"
 printf '# register\n\n### H-20260101-a-old-question\n\n### H-20260102-k-foreign-initial\n' > "$HR"
 printf '\nregister: dev-handoff-register.md\n' >> "$INDEX"
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
-{ has 'arbitration.*H-20260101-a-old-question' "$OUTT" && lacks 'no open handoff items' "$OUTT"; }; check A1 "an item by dev 'a' (profile declares a/b) is seen" $?
+{ has 'arbitration.*H-20260101-a-old-question' "$OUTT" && lacks 'no open items' "$OUTT"; }; check A1 "an item by dev 'a' (profile declares a/b) is seen" $?
 { lacks 'H-20260102-k-foreign-initial' "$OUTT"; }; check A1 "PF_ARB_ID_RE is consumed: an initial outside [ab] is not read" $?
 prof_set PF_ARB_ID_RE '""'
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
@@ -443,7 +443,7 @@ printf '# register\n\n### H-20260101-a-open-thing · waiting on a reply\n### H-2
 printf '# bodies\n\n### H-20260101-a-open-thing · waiting on a reply\n### H-20260101-a-done-thing · DONE\n### H-20260101-a-res-thing · RESOLVED 2026-01-03\n### H-20260101-a-closed-thing · CLOSED\n### H-20260101-a-ans-thing · ANSWERED\n### H-20260101-a-obs-thing · OBSOLETE\n### H-20260101-a-deco-thing · ✅ DONE\n### H-20260101-a-sus-thing - DONE somewhere\n' > "$HD/open.md"
 printf '\nregister: dev-handoff-register.md dev-handoff-register/open.md\n' >> "$INDEX"
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
-{ has 'arbitration.*a-open-thing' "$OUTT" && lacks 'arbitration.*a-done-thing — [0-9]* d open' "$OUTT" && lacks 'arbitration.*a-res-thing — [0-9]* d open' "$OUTT" \
+{ has 'arbitration.*a-open-thing' "$OUTT" && lacks 'arbitration.*a-done-thing.* [0-9]* d open' "$OUTT" && lacks 'arbitration.*a-res-thing — [0-9]* d open' "$OUTT" \
   && lacks 'arbitration.*a-closed-thing — [0-9]* d open' "$OUTT" && lacks 'arbitration.*a-ans-thing — [0-9]* d open' "$OUTT" && lacks 'arbitration.*a-obs-thing — [0-9]* d open' "$OUTT"; }; check A15 "DONE / RESOLVED / CLOSED / ANSWERED / OBSOLETE items are closed in preflight" $?
 { has 'a-deco-thing(OFF-TEMPLATE)' "$OUTT" && has 'a-sus-thing(SUSPECT)' "$OUTT"; }; check A15 "decorated and off-separator closures are flagged, not silently counted" $?
 run bash "$KITREL/doctor.sh"
@@ -451,13 +451,13 @@ run bash "$KITREL/doctor.sh"
 prof_set PF_ARB_CLOSED_RE "'FINI|BOUCLE'"
 printf '### H-20260101-a-fini-thing · FINI\n' >> "$HR"; printf '### H-20260101-a-fini-thing · FINI\n' >> "$HD/open.md"
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
-{ lacks 'arbitration.*a-fini-thing — [0-9]* d open' "$OUTT" && has 'arbitration.*a-done-thing — [0-9]* d open' "$OUTT"; }; check A15 "a profile-supplied vocabulary replaces the default" $?
+{ lacks 'arbitration.*a-fini-thing.* [0-9]* d open' "$OUTT" && has 'arbitration.*a-done-thing.* [0-9]* d open' "$OUTT"; }; check A15 "a profile-supplied vocabulary replaces the default" $?
 if command -v mawk >/dev/null 2>&1; then
   mkdir -p "$SB/awkshim-a15"; ln -sf "$(command -v mawk)" "$SB/awkshim-a15/awk"
   run env PATH="$SB/awkshim-a15:$PATH" ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
-  { lacks 'arbitration.*a-fini-thing — [0-9]* d open' "$OUTT" && has 'arbitration.*a-done-thing — [0-9]* d open' "$OUTT"; }; check A15 "same verdicts under mawk" $?
+  { lacks 'arbitration.*a-fini-thing.* [0-9]* d open' "$OUTT" && has 'arbitration.*a-done-thing.* [0-9]* d open' "$OUTT"; }; check A15 "same verdicts under mawk" $?
   LC_ALL=C run bash bin/pm-preflight.sh --no-fetch; strip
-  { lacks 'arbitration.*a-fini-thing — [0-9]* d open' "$OUTT" && has 'arbitration.*a-done-thing — [0-9]* d open' "$OUTT"; }; check A15 "same verdicts under LC_ALL=C" $?
+  { lacks 'arbitration.*a-fini-thing.* [0-9]* d open' "$OUTT" && has 'arbitration.*a-done-thing.* [0-9]* d open' "$OUTT"; }; check A15 "same verdicts under LC_ALL=C" $?
 else skip A15 "mawk not installed (awk-flavour case)"; fi
 
 ###############################################################################
@@ -726,6 +726,36 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths ref_users; strip
 run bash "$KITREL/kernel/rails-index.sh"
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths ref_users; strip
 { lacks 'rails-stale' "$OUTT"; }; check rails-fresh "regenerating clears the warning" $?
+
+###############################################################################
+# A5 — P6 prints id and title of every open item; header, declared age and
+#      escalation wording come from the profile, nothing is hardcoded
+###############################################################################
+mk_proj pa5 remote
+HR="$MEMDIR/dev-handoff-register.md"
+printf '# register\n\n### H-%s-a-fresh-item · Which importer for the CSV feed?\n### H-%s-a-old-item · Rename the billing table? · 1 d\n### H-%s-a-late-item · Pick the tax rounding mode\n### H-%s-a-shut-item · DONE\n' "$(ago_ymd 0)" "$(ago_ymd 5)" "$(ago_ymd 12)" "$(ago_ymd 30)" > "$HR"
+prof_set PF_ARB_ESCALATION '""'; prof_set PF_ARB_DECLARED_AGE_RE '""'
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'ok   arbitration.*a-fresh-item — Which importer for the CSV feed? — 0 d open' "$OUTT" \
+  && has 'WARN arbitration.*a-old-item — Rename the billing table?.* — 5 d open' "$OUTT" \
+  && has 'STOP arbitration.*a-late-item — Pick the tax rounding mode — 12 d open, past the 7d stop threshold' "$OUTT"; }; check A5 "every open item is listed with its id and title, at its own level" $?
+{ lacks 'a-shut-item' "$OUTT"; }; check A5 "a closed item is not listed" $?
+{ lacks 'STALE' "$OUTT" && lacks 'escalation' "$OUTT" && lacks ' j ' "$OUTT"; }; check A5 "no declared-age field is read and no escalation wording appears unless the profile sets them" $?
+prof_set PF_ARB_DECLARED_AGE_RE "'[·] [0-9]+ d'"
+prof_set PF_ARB_ESCALATION '"open a ticket by hand"'
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'a-old-item.*\[declared 1d — STALE\]' "$OUTT" && has 'escalation policy: open a ticket by hand' "$OUTT"; }; check A5 "PF_ARB_DECLARED_AGE_RE flags a stale declared age, in English; PF_ARB_ESCALATION is quoted verbatim" $?
+# a register with another header shape and another id shape
+printf '# questions\n\n## Q-%s-x-pricing · Which tier names?\n### H-%s-a-ignored-item · not a header here\n' "$(ago_ymd 9)" "$(ago_ymd 9)" > "$HR"
+prof_set PF_ARB_HEADER_RE "'^## Q-'"
+prof_set PF_ARB_ID_RE "'Q-[0-9]+-[a-z]-[a-z]+'"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ [ "$RC" = 2 ] && has 'STOP arbitration.*Q-[0-9]*-x-pricing — Which tier names? — 9 d open' "$OUTT" && lacks 'ignored-item' "$OUTT"; }; check A5 "PF_ARB_HEADER_RE selects the header lines; the date is read from the id whatever its prefix (rc=$RC)" $?
+if command -v mawk >/dev/null 2>&1; then
+  mkdir -p "$SB/awkshim-a5"; ln -sf "$(command -v mawk)" "$SB/awkshim-a5/awk"
+  run env PATH="$SB/awkshim-a5:$PATH" ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+  { has 'STOP arbitration.*Q-[0-9]*-x-pricing — Which tier names? — 9 d open' "$OUTT"; }; check A5 "same listing under mawk" $?
+else skip A5 "mawk not installed (awk-flavour case)"; fi
 
 ###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"

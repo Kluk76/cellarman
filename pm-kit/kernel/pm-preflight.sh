@@ -178,6 +178,22 @@ export ARB_ID_RE
 ARB_CLOSED_RE="${PF_ARB_CLOSED_RE:-}"
 [ -n "$ARB_CLOSED_RE" ] || ARB_CLOSED_RE='CLOSED|DONE|RESOLVED|ANSWERED|OBSOLETE'
 export ARB_CLOSED_RE
+# PF_ARB_HEADER_RE: ERE matching the HEADER line of a register item (awk). The
+# id (PF_ARB_ID_RE) is then looked for inside that line. Default: any level-3
+# heading, so a register that never set it is read the way the example profile
+# documents.
+ARB_HEADER_RE="${PF_ARB_HEADER_RE:-}"
+[ -n "$ARB_HEADER_RE" ] || ARB_HEADER_RE='^### '
+export ARB_HEADER_RE
+# PF_ARB_DECLARED_AGE_RE: optional ERE matching a hand-maintained age field in a
+# header (for example "· [0-9]+ d"). When set, the digits in the match are compared
+# with the age computed from the id and a disagreement is flagged STALE. Unset: no
+# declared age is read.
+ARB_DECLARED_AGE_RE="${PF_ARB_DECLARED_AGE_RE:-}"
+export ARB_DECLARED_AGE_RE
+# PF_ARB_ESCALATION: the project's own words for what happens to an item past the
+# stop threshold. Quoted verbatim next to the count; the script adds no wording.
+ARB_ESCALATION="${PF_ARB_ESCALATION:-}"
 DRIFT_SLUG_SED="${PF_DRIFT_SLUG_RE:-}"
 [ -n "$DRIFT_SLUG_SED" ] || DRIFT_SLUG_SED='s/^[0-9]\{12\}_[a-z]_//; s/[-_].*$//'
 
@@ -665,10 +681,12 @@ for t in $SHARED_TOOLS; do
 done
 
 # ── P6. Arbitration queue — age computed from the ID, never from the column ────
-# The register's escalation rule reads a hand-maintained '· N j' field. Measured
-# 2026-08-05: 9 of 11 open items carried a stale age; eight had crossed the 7-day
-# 🔴 threshold while reading "0 j". A detector keys on SILENCE, not on a status
-# column somebody has to remember to write.
+# A register's age rule that reads a hand-maintained "N days" field goes stale:
+# measured on the origin project, 9 of 11 open items carried a stale age and
+# eight had crossed the stop threshold while reading "0". A detector keys on
+# SILENCE, not on a status column somebody has to remember to write. The age
+# comes from the date inside the item id; a declared age (PF_ARB_DECLARED_AGE_RE,
+# optional) is only COMPARED against it, to flag the field as stale.
 sec "P6 · arbitration queue (age recomputed, not read)"
 if [ -z "$HANDOFF" ]; then
   ok arbitration "n/a (no arbitration register declared: PF_ARB_FILE is empty)"
@@ -677,17 +695,25 @@ elif [ ! -f "$HANDOFF" ]; then
 else
   TODAY=$(date -u '+%Y%m%d')
   awk -v today="$TODAY" -v warnd="$ARB_WARN_DAYS" -v stopd="$ARB_STOP_DAYS" '
-    BEGIN { idre = ENVIRON["ARB_ID_RE"]; cre = ENVIRON["ARB_CLOSED_RE"] }
+    BEGIN { hre = ENVIRON["ARB_HEADER_RE"]; idre = ENVIRON["ARB_ID_RE"]
+            cre = ENVIRON["ARB_CLOSED_RE"]; dre = ENVIRON["ARB_DECLARED_AGE_RE"] }
     function g(y,m,d,  a,yy,mm){a=int((14-m)/12);yy=y+4800-a;mm=m+12*a-3;
       return d+int((153*mm+2)/5)+365*yy+int(yy/4)-int(yy/100)+int(yy/400)-32045}
-    /^### H-20/ {
+    $0 ~ hre {
       line=$0
       if (match(line, idre)) {
         id=substr(line,RSTART,RLENGTH)
-        ds=substr(id,3,8)
+        idend=RSTART+RLENGTH
+        # The age is computed from the first run of 8 digits inside the id.
+        if (!match(id, /[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]/)) next
+        ds=substr(id,RSTART,8)
         y=substr(ds,1,4)+0; m=substr(ds,5,2)+0; d=substr(ds,7,2)+0
         ty=substr(today,1,4)+0; tm=substr(today,5,2)+0; td=substr(today,7,2)+0
         age=g(ty,tm,td)-g(y,m,d)
+        # The title: what follows the " · " separator, else what follows the id.
+        title=substr(line, idend)
+        if (match(line, /· */)) title=substr(line, RSTART+RLENGTH)
+        gsub(/^[ \t-]+/, "", title); gsub(/[ \t]+$/, "", title); gsub(/\t/, " ", title)
         # CLOSURE VOCABULARY, declared by the profile (PF_ARB_CLOSED_RE, an ERE of
         # alternatives): the word is GLUED to the " · " separator, decoration only
         # AFTER it. The same value is read by pm-kit/doctor.sh (which reads the
@@ -700,8 +726,8 @@ else
         # an escalation of an already-settled question. Two levels, graded on
         # CERTAINTY:
         #   OFF-TEMPLATE : the separator, then ONLY decoration, then the word
-        #                  (" · ✅ DONE", " · **DONE**"). Near-certain: the strict
-        #                  form already failed here.
+        #                  (" · DONE" with a tick or bold markers in between).
+        #                  Near-certain: the strict form already failed here.
         #   SUSPECT      : a closure word elsewhere in the header (e.g. after a
         #                  dash instead of the separator). May be legitimate
         #                  prose in an open item, so it is flagged, not asserted.
@@ -709,44 +735,49 @@ else
           if (line ~ ("· *[^A-Za-z0-9]* *(" cre ")")) badfmt[id]="OFF-TEMPLATE"
           else if (line ~ ("(" cre ")"))              badfmt[id]="SUSPECT"
         }
-        decl=-1; if (match(line,/· *[0-9]+ j/)) { s=substr(line,RSTART,RLENGTH); gsub(/[^0-9]/,"",s); decl=s+0 }
+        decl=-1
+        if (dre != "" && match(line, dre)) { s=substr(line,RSTART,RLENGTH); gsub(/[^0-9]/,"",s); if (s != "") decl=s+0 }
         if (state=="open") {
           lvl = (age>=stopd) ? "STOP" : ((age>=warnd) ? "WARN" : "ok")
-          drift = (decl>=0 && decl!=age) ? sprintf(" [declared %dj — STALE]", decl) : ""
+          drift = (decl>=0 && decl!=age) ? sprintf(" [declared %dd — STALE]", decl) : ""
           if (id in badfmt) drift = drift " [" badfmt[id] "]"
-          printf "%s\t%s\t%d\t%s\n", lvl, id, age, drift
+          printf "%s\037%s\037%d\037%s\037%s\n", lvl, id, age, drift, title
         }
       }
     }
-    END { for (i in badfmt) printf "FMT\t%s\t0\t%s\n", i, badfmt[i] | "sort" }' "$HANDOFF" > "$TMP/arb"
+    END { for (i in badfmt) printf "FMT\037%s\0370\037%s\037\n", i, badfmt[i] | "sort" }' "$HANDOFF" > "$TMP/arb"
 
   if [ ! -s "$TMP/arb" ]; then
-    ok arbitration "no open handoff items"
+    ok arbitration "no open items"
   else
     NSTOP=$(grep -c '^STOP' "$TMP/arb" 2>/dev/null || true); NSTOP=${NSTOP:-0}
     NWARN=$(grep -c '^WARN' "$TMP/arb" 2>/dev/null || true); NWARN=${NWARN:-0}
+    NOPEN=$(grep -cE '^(STOP|WARN|ok)[[:space:]]' "$TMP/arb" 2>/dev/null || true); NOPEN=${NOPEN:-0}
     NSTALE=$(grep -c 'STALE' "$TMP/arb" 2>/dev/null || true); NSTALE=${NSTALE:-0}
-    while IFS="$(printf '\t')" read -r LVL ID AGE DRIFT; do
+    # US (0x1F) separates the fields: a TAB is whitespace to read, so an empty field
+    # would collapse and shift the rest.
+    while IFS="$(printf '\037')" read -r LVL ID AGE DRIFT TITLE; do
       case "$LVL" in
-        # PF_ARB_STOP_DAYS is a STOP threshold, as its name and the README ("act on
-        # exit 2") say: an item open that long blocks the session until a human
-        # rules on it. (It used to be emitted at WARN, so the variable never
-        # stopped anything.)
-        STOP) stop arbitration "$ID — $AGE d open, past the ${ARB_STOP_DAYS}d escalation threshold$DRIFT" ;;
-        WARN) warn arbitration "$ID — $AGE d open, name it in the recommendation$DRIFT" ;;
+        # PF_ARB_STOP_DAYS is a STOP threshold: an item open that long blocks the
+        # session until a human rules on it. What happens to it then is the
+        # project's escalation policy (PF_ARB_ESCALATION, quoted below), not text
+        # this script invents.
+        STOP) stop arbitration "$ID${TITLE:+ — $TITLE} — $AGE d open, past the ${ARB_STOP_DAYS}d stop threshold$DRIFT" ;;
+        WARN) warn arbitration "$ID${TITLE:+ — $TITLE} — $AGE d open (warn threshold ${ARB_WARN_DAYS}d)$DRIFT" ;;
+        ok)   ok arbitration "$ID${TITLE:+ — $TITLE} — $AGE d open$DRIFT" ;;
       esac
     done < "$TMP/arb"
-    # ⭐ « Je ne sais pas lire cet en-tête » ne doit JAMAIS se rendre par le même
-    # octet que « il est ouvert ». Agrégé en UNE ligne : la règle se répète mal,
-    # et une instruction recopiée par item devient du papier peint.
+    # An item that could not be READ must never be rendered by the same byte as
+    # one that is open. Aggregated into ONE line: a rule repeated per item turns
+    # into wallpaper.
     NFMT=$(grep -c '^FMT' "$TMP/arb" 2>/dev/null || true); NFMT=${NFMT:-0}
     if [ "${NFMT:-0}" -gt 0 ]; then
-      FMTIDS=$(awk -F"\t" '$1=="FMT"{printf "%s(%s) ", $2, $4}' "$TMP/arb")
+      FMTIDS=$(awk -F"$(printf '\037')" '$1=="FMT"{printf "%s(%s) ", $2, $4}' "$TMP/arb")
       warn arbitration "$NFMT header(s) OUTSIDE THE CLOSURE VOCABULARY, counted OPEN because they could not be read: $FMTIDS— closure is written ' · <WORD>' with the word GLUED to the ' · ' separator and any decoration AFTER it; <WORD> is one of: $ARB_CLOSED_RE (profile variable PF_ARB_CLOSED_RE). OFF-TEMPLATE = decoration between the separator and the word (near-certain); SUSPECT = a closure word elsewhere in the header (may be legitimate prose)."
     fi
-    [ "$NSTALE" -gt 0 ] && warn arbitration "$NSTALE item(s) carry a STALE declared age — the '· N j' field is decoration; delete it or generate it"
-    [ "$NSTOP" -gt 0 ] && warn arbitration "$NSTOP item(s) past the ${ARB_STOP_DAYS}d threshold need a human escalation${PF_ARB_ESCALATION:+ ($PF_ARB_ESCALATION)} — the PM must NOT create it"
-    ok arbitration "queue measured: $NSTOP overdue / $NWARN ageing"
+    [ "$NSTALE" -gt 0 ] && warn arbitration "$NSTALE item(s) carry a declared age that disagrees with the age computed from the id (PF_ARB_DECLARED_AGE_RE): the field is decoration; delete it or generate it"
+    [ "$NSTOP" -gt 0 ] && warn arbitration "$NSTOP item(s) past the ${ARB_STOP_DAYS}d stop threshold${ARB_ESCALATION:+ — escalation policy: $ARB_ESCALATION}"
+    ok arbitration "queue measured: $NOPEN open, $NSTOP past the stop threshold, $NWARN past the warn threshold"
   fi
 fi
 
