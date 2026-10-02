@@ -271,9 +271,12 @@ cat >> "$INDEX" <<'EOF'
 - ⛔ never edit `app/db.php` by hand · 🔴 `ref_users` is read by two views · ⛔ `fin_ledger.amount` is sealed
 - 🆕 ⛔ badge-led rail on `scripts/deploy.sh`
 EOF
+# the ruling badge is U+2696 U+FE0F, written as bytes so no editor can drop the variation selector
+RULING="$(printf '\342\232\226\357\270\217')"
+printf -- '- 🆕%s🔴 ruling-badged warn rail on `app/ruling.php`\n- %s⛔ ruling then stop rail on `app/ruling2.php`\n' "$RULING" "$RULING" >> "$INDEX"
 sev() { awk -F'\t' -v a="$1" '$1==a {print $2; exit}' "$PROJ/$KITREL/state/RAILS-BY-ARTEFACT.tsv"; }
-sevline() { printf 'db.php=%s ref_users=%s fin_ledger.amount=%s deploy.sh=%s' "$(sev app/db.php)" "$(sev ref_users)" "$(sev fin_ledger.amount)" "$(sev scripts/deploy.sh)"; }
-EXPECT_SEV='db.php=STOP ref_users=WARN fin_ledger.amount=STOP deploy.sh=STOP'
+sevline() { printf 'db.php=%s ref_users=%s fin_ledger.amount=%s deploy.sh=%s ruling=%s ruling2=%s' "$(sev app/db.php)" "$(sev ref_users)" "$(sev fin_ledger.amount)" "$(sev scripts/deploy.sh)" "$(sev app/ruling.php)" "$(sev app/ruling2.php)"; }
+EXPECT_SEV='db.php=STOP ref_users=WARN fin_ledger.amount=STOP deploy.sh=STOP ruling=WARN ruling2=STOP'
 locale -a > "$SB/locales.txt" 2>/dev/null
 UTF8_LOC=""; for l in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do grep -qx "$l" "$SB/locales.txt" && { UTF8_LOC="$l"; break; }; done
 AWKSHIM="$SB/awkshim"; mkdir -p "$AWKSHIM"

@@ -280,9 +280,10 @@ function cut_chars(s, n,   cut, len, i, c, need) {
 
 # head_prefix_ok(s) — TRUE iff s (everything in the record BEFORE a candidate
 # marker occurrence) reduces to nothing once leading whitespace, dashes,
-# asterisks (markdown bold-open) and a leading 🆕 badge are stripped, in any
-# order, repeatedly. That is "the marker sits at the record's head" — the ONLY
-# other context (see tag_markers below) that lets a marker open a fragment.
+# asterisks (markdown bold-open) and the leading DECORATION BADGES (🆕, ⚖️) are
+# stripped, in any order, repeatedly. That is "the marker sits at the record's
+# head" — the ONLY other context (see tag_markers below) that lets a marker open
+# a fragment.
 function head_prefix_ok(s,   changed) {
   changed = 1
   while (changed) {
@@ -294,6 +295,7 @@ function head_prefix_ok(s,   changed) {
     # (chars under gawk+UTF-8, bytes under mawk / LC_ALL=C): comparing
     # substr(s,1,1) to a 4-byte badge only works in char mode.
     if (index(s, BADGE) == 1) { s = substr(s, length(BADGE) + 1); changed = 1 }
+    if (index(s, BADGE_RULING) == 1) { s = substr(s, length(BADGE_RULING) + 1); changed = 1 }
   }
   return (s == "")
 }
@@ -453,6 +455,9 @@ BEGIN {
   # "characters": the same file must classify identically under gawk UTF-8,
   # mawk and LC_ALL=C (a rail was STOP under one and INFO under another).
   BADGE = "🆕"
+  # The ruling badge is U+2696 + U+FE0F (variation selector). BOTH code points:
+  # stripping U+2696 alone leaves FE0F in the prefix, so head_prefix_ok() stays false.
+  BADGE_RULING = "\342\232\226\357\270\217"
   SEP = " · "
   for (b = 128; b < 192; b++) CONTBYTE[sprintf("%c", b)] = 1
   for (b = 192; b < 224; b++) LEADLEN[sprintf("%c", b)] = 2
