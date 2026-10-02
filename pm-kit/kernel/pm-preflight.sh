@@ -951,7 +951,7 @@ if [ "$DO_JSON" = 1 ]; then
 else
   printf '\n'
   case "$RC" in
-    0) printf '\033[32m● CLEAR\033[0m — no clash signal, nothing unmeasured. Proceed.\n' ;;
+    0) printf '\033[32m● CLEAR\033[0m — no warning, no STOP, nothing unmeasured. (Ownership and rails cover only the paths given with --paths.) Proceed.\n' ;;
     1) printf '\033[33m● PROCEED WITH NAMED WARNINGS (%d warning(s), %d unmeasured)\033[0m — the consult MUST name each warning and report each unmeasured check as unmeasured.\n' "$WARN_N" "$UNMEAS_N" ;;
     2) printf '\033[31m● STOP (%d blocking, %d warning(s), %d unmeasured)\033[0m — do not sequence this build. Resolve, or hand it to a human.\n' "$STOP_N" "$WARN_N" "$UNMEAS_N" ;;
   esac

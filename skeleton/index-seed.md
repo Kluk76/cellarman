@@ -42,6 +42,12 @@ pointer. Detail goes in the arc's topic file under `## Build log`, newest first.
 
 - **<Arc name>**: <status word> (<date>). Trigger "<word>" / "<word>". Pointer: `acme-pm-memory/<topic file>`.
 
+## Open decisions
+
+Questions that need a ruling from another developer or a human live in
+`acme-pm-memory/dev-handoff-register.md`, not here. The pre-flight lists the open
+items with their ages; this index records none of them.
+
 ## Shipped
 
 Delivered arcs are one line each in `acme-pm-memory/shipped-arcs-register.md`
