@@ -45,8 +45,8 @@
 set -u
 [ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
 
-KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"   # <kit checkout>/pm-kit
-KIT_ROOT="$(cd "$KIT_DIR/.." && pwd)"                          # <kit checkout>
+KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd -P)"   # <kit checkout>/pm-kit
+KIT_ROOT="$(cd "$KIT_DIR/.." && pwd -P)"                          # <kit checkout>
 
 die() { echo "init.sh: NOT RUN — $*" >&2; exit 3; }
 
@@ -75,7 +75,7 @@ case "$DEV" in
   *[!a-z0-9]*) die "--dev '$DEV' may contain only lowercase letters and digits" ;;
 esac
 [ -d "$REPO" ] || die "--repo '$REPO' is not a directory"
-REPO="$(cd "$REPO" && pwd)"
+REPO="$(cd "$REPO" && pwd -P)"
 git -C "$REPO" rev-parse --is-inside-work-tree >/dev/null 2>&1 || die "$REPO is not a git work tree (run git init first)"
 [ "$(git -C "$REPO" rev-parse --show-toplevel)" = "$REPO" ] || die "$REPO is not the root of its repository (run it from the root, or pass --repo <root>)"
 

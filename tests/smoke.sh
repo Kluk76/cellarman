@@ -44,7 +44,7 @@ run() { LOGN=$((LOGN+1)); OUT="$SB/log.$LOGN"; "$@" > "$OUT" 2>&1; RC=$?; }
 has()   { grep -q -- "$1" "${2:-$OUT}"; }
 lacks() { ! grep -q -- "$1" "${2:-$OUT}"; }
 ESC="$(printf '\033')"   # BSD sed has no \x1b
-strip() { sed "s/${ESC}\[[0-9;]*m//g" "${1:-$OUT}" > "${1:-$OUT}.txt"; OUTT="${1:-$OUT}.txt"; }
+strip() { sed "s/${ESC}\[[0-9;]*m//g" "${1:-$OUT}" > "${1:-$OUT}.txt" || { echo "DIAG strip: $(LC_ALL=C grep -a -n '[^ -~]' "${1:-$OUT}" | LC_ALL=C grep -a -v "$ESC" | od -c | head -30)" >&2; }; OUTT="${1:-$OUT}.txt"; }
 
 KITREL=claude-brain/pm-kit
 MEMDIR=claude-brain/agents/acme-pm-memory
