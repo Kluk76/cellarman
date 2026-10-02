@@ -10,7 +10,7 @@
 #
 # The map is keyed on CONCERN, not on file, deliberately: a per-file map blocks
 # a correct, ratified cross-concern change, and a map overridden once gets
-# ignored forever. So the lane is (owner × concern × glob), and cross-concern
+# ignored forever. So the lane is (owner x concern x glob), and cross-concern
 # work has an explicit RATIFIED escape that is RECORDED rather than refused.
 #
 # Portable kernel: carries no project nouns. Team identities, the shared
@@ -27,14 +27,14 @@
 # crossed and the owner who must smoke-test it. A frozen lane is the one wall
 # ratification cannot open.
 #   Sources, in order: --ratified flag, $RATIFIED, then the last commit message.
-#   🔴 Le reçu lu dans un COMMIT ne couvre QUE les fichiers de ce commit (voir
-#   `is_ratified_for`) : un reçu ambiant survivait à son build et éteignait la
-#   garde pour tout le suivant. Un reçu explicite (--ratified / $RATIFIED) porte
-#   sur l'invocation. ⇒ AVANT de commiter, une traversée se déclare avec
-#   `--ratified` ; le message de commit reste la trace d'audit APRÈS coup.
-#   ⛔ Ne jamais lire un verdict au CODE DE SORTIE : lire la présence d'une
-#   ligne `own lane` / `SHARED lane`. Un `RECORDED:` seul est un blocage
-#   maquillé en autorisation.
+#   A receipt read from a COMMIT covers ONLY the files of that commit (see
+#   `is_ratified_for`): an ambient receipt used to outlive its build and switch
+#   the guard off for every later one. An explicit receipt (--ratified or
+#   $RATIFIED) covers the invocation. So BEFORE committing, a lane crossing is
+#   declared with `--ratified`; the commit message stays the audit trail
+#   AFTERWARDS.
+#   Never read a verdict from the exit code alone: look for an `own lane` or
+#   `SHARED lane` line. A bare `RECORDED:` is a block dressed up as a permission.
 #
 # EXIT
 #   0  every path is in the acting dev's own lane and unclaimed by anyone else
@@ -300,29 +300,28 @@ else
   fi
 fi
 # ── the receipt must be SCOPED TO THE ACT ─────────────────────────────────────
-# 🔴 Le repli « dernier message de commit » était AMBIANT : un `RATIFIED:` posé
-# pour le build A couvrait B, C, D… jusqu'au premier commit sans le jeton.
-# Mesuré : `ownership-lint --dev A src/crm.php` — couloir du second
-# développeur, hors du programme en cours — rendait **EXIT=0 sans aucune
-# ligne `own lane`**, uniquement `RECORDED: (source: last commit message)`. La
-# garde n'était pas assouplie, elle était ÉTEINTE. Et `RATIFIED=""` ne la
-# rétablissait pas : la variable vide retombe (à dessein) sur le message.
+# The "last commit message" fallback used to be AMBIENT: a `RATIFIED:` written for
+# build A covered B, C, D... until the first commit without the token. Measured on
+# the origin project: linting a path in the other developer's lane, outside the
+# current programme, exited 0 with no `own lane` line, only `RECORDED: (source:
+# last commit message)`. The guard was not loosened, it was OFF; and an empty
+# RATIFIED="" did not restore it, because an empty variable falls back to the
+# message by design.
 #
-# Un reçu porté par un support qui SURVIT À L'ACTE est un interrupteur laissé
-# sur ON, et sa signature n'est jamais une erreur — c'est un assouplissement
-# silencieux. Le correctif ne supprime pas la source (le message de commit reste
-# la trace d'audit correcte APRÈS coup) : il la BORNE aux chemins que ce commit
-# touche réellement. Conséquence voulue : avant de commiter, une traversée de
-# couloir se déclare avec `--ratified` sur l'appel — dire son intention est
-# précisément ce qu'un reçu ambiant permettait d'éviter.
+# A receipt carried by something that OUTLIVES THE ACT is a switch left on, and its
+# signature is never an error: it is a silent loosening. The fix does not remove
+# the source (the commit message remains the correct audit trail afterwards); it
+# BOUNDS it to the paths that commit actually touches. Intended consequence: before
+# committing, a lane crossing is declared with `--ratified` on the call. Stating
+# the intention is exactly what an ambient receipt let people skip.
 RATIFIED_FILES=""
 if [ "$RATIFIED_SRC" = "last commit message" ]; then
   RATIFIED_FILES=$(cd "$REPO_ROOT" 2>/dev/null && git log -1 --name-only --format= 2>/dev/null)
 fi
 
-# 1 si le reçu couvre CE chemin, 0 sinon. Un reçu explicite (--ratified /
-# $RATIFIED) porte sur l'invocation, donc sur tous ses chemins ; un reçu lu dans
-# un commit ne porte que sur les fichiers de ce commit.
+# Returns 0 when the receipt covers THIS path, 1 otherwise. An explicit receipt
+# (--ratified or $RATIFIED) covers the invocation, hence all its paths; a receipt
+# read from a commit covers only the files of that commit.
 is_ratified_for() {
   [ -n "$RATIFIED_SRC" ] || return 1
   [ "$RATIFIED_SRC" = "last commit message" ] || return 0

@@ -142,7 +142,7 @@ fi
 : "${DOCTOR:=${PM_DOCTOR:-}}"
 : "${SSH_TARGET:=${PF_TARGET_HOST:-}}"
 : "${QUEUE_TARGET_CMD:=${PF_QUEUE_TARGET:-}}"
-: "${VPS_PATH:=${PF_TARGET_PATH:-}}"
+: "${TARGET_PATH:=${PF_TARGET_PATH:-}}"
 : "${DB_SCHEMA:=${PF_DB_SCHEMA:-}}"
 : "${ARB_WARN_DAYS:=${PF_ARB_WARN_DAYS:-3}}"
 : "${ARB_STOP_DAYS:=${PF_ARB_STOP_DAYS:-7}}"
@@ -424,7 +424,7 @@ if [ -z "$MIG_DIR" ]; then
   ok mig-upstream "n/a (no queue declared)"
   ok mig-local "n/a (no queue declared)"
   ok mig-draft "n/a (no queue declared)"
-  ok mig-vps "n/a (no queue declared)"
+  ok queue-target "n/a (no queue declared)"
   ONLY_UP=""; ONLY_DK=""
 else
   ls "$MIG_DIR"/*.sql 2>/dev/null | while IFS= read -r f; do basename "$f"; done | sort > "$TMP/disk"
@@ -464,12 +464,13 @@ else
     ok mig-local "no unpushed migration files"
   fi
 
-  # _draft: `next-migration.sh finalize` sweeps the WHOLE directory, so another
-  # session's draft gets stamped with your initial and lands untracked by git.
+  # Staging directory: whatever promotes a draft into the queue usually sweeps the
+  # WHOLE directory, so another session's draft gets promoted under your name and
+  # may land untracked by git.
   if [ -d "$DRAFT_DIR" ]; then
     DN=$(ls "$DRAFT_DIR"/*.sql 2>/dev/null | wc -l | tr -d ' ')
     if [ "$DN" -gt 0 ]; then
-      warn mig-draft "$DN file(s) in $DRAFT_DIR — 'finalize' sweeps ALL of them; list before running it:"
+      warn mig-draft "$DN file(s) in $DRAFT_DIR — promoting sweeps ALL of them; list before running it:"
       [ "$DO_JSON" = 1 ] || ls "$DRAFT_DIR"/*.sql 2>/dev/null | sed 's/^/         /'
     else ok mig-draft "_draft/ empty"; fi
   else ok mig-draft "_draft/ absent (nothing staged)"; fi
@@ -482,43 +483,45 @@ else
   # otherwise the generic fallback is `ssh $PF_TARGET_HOST ls $PF_TARGET_PATH/<queue>`.
   # Declared by either one; neither declared is n/a.
   if [ -z "$SSH_TARGET" ] && [ -z "$QUEUE_TARGET_CMD" ]; then
-    ok mig-vps "n/a (no deploy target declared)"
+    ok queue-target "n/a (no deploy target declared)"
   elif [ "$DO_PROBE" = 1 ]; then
     if [ -n "$QUEUE_TARGET_CMD" ]; then
       TARGET_WHO="the PF_QUEUE_TARGET command"
-      VPSLS=$(eval "$QUEUE_TARGET_CMD" 2>/dev/null); VRC=$?
+      TARGET_LS=$(eval "$QUEUE_TARGET_CMD" 2>/dev/null); VRC=$?
     else
       TARGET_WHO="ssh to $SSH_TARGET"
-      VPSLS=$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$SSH_TARGET" \
-          "ls $VPS_PATH/$MIG_DIR/*.sql 2>/dev/null | xargs -n1 basename; true" 2>/dev/null); VRC=$?
+      TARGET_LS=$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$SSH_TARGET" \
+          "ls $TARGET_PATH/$MIG_DIR/*.sql 2>/dev/null | xargs -n1 basename; true" 2>/dev/null); VRC=$?
     fi
     if [ "$VRC" = 0 ]; then
-      printf '%s\n' "$VPSLS" | sed 's|.*/||' | grep '\.sql$' | sort > "$TMP/vps"
-      UP_NOT_VPS=$(comm -13 "$TMP/vps" "$TMP/upstream")
-      VPS_NOT_UP=$(comm -23 "$TMP/vps" "$TMP/upstream")
-      if [ -n "$UP_NOT_VPS" ]; then
-        warn mig-vps "on $UPSTREAM, not yet on the deploy target (a deploy arms them):"
-        [ "$DO_JSON" = 1 ] || printf '%s\n' "$UP_NOT_VPS" | sed 's/^/         /'
+      printf '%s\n' "$TARGET_LS" | sed 's|.*/||' | grep '\.sql$' | sort > "$TMP/target"
+      UP_NOT_TARGET=$(comm -13 "$TMP/target" "$TMP/upstream")
+      TARGET_NOT_UP=$(comm -23 "$TMP/target" "$TMP/upstream")
+      if [ -n "$UP_NOT_TARGET" ]; then
+        warn queue-target "on $UPSTREAM, not yet on the deploy target (a deploy arms them):"
+        [ "$DO_JSON" = 1 ] || printf '%s\n' "$UP_NOT_TARGET" | sed 's/^/         /'
       fi
-      if [ -n "$VPS_NOT_UP" ]; then
-        stop mig-vps "on the deploy target and NOT on $UPSTREAM — the target has a queued change git does not know about:"
-        [ "$DO_JSON" = 1 ] || printf '%s\n' "$VPS_NOT_UP" | sed 's/^/         /'
+      if [ -n "$TARGET_NOT_UP" ]; then
+        stop queue-target "on the deploy target and NOT on $UPSTREAM — the target has a queued change git does not know about:"
+        [ "$DO_JSON" = 1 ] || printf '%s\n' "$TARGET_NOT_UP" | sed 's/^/         /'
       fi
-      [ -z "$UP_NOT_VPS$VPS_NOT_UP" ] && ok mig-vps "deploy target == $UPSTREAM for $MIG_DIR/"
+      [ -z "$UP_NOT_TARGET$TARGET_NOT_UP" ] && ok queue-target "deploy target == $UPSTREAM for $MIG_DIR/"
     else
-      unmeasured mig-vps "could not reach the deploy target ($TARGET_WHO failed, exit $VRC) — target side of the three-way diff NOT measured"
+      unmeasured queue-target "could not reach the deploy target ($TARGET_WHO failed, exit $VRC) — target side of the three-way diff NOT measured"
     fi
   else
-    unmeasured mig-vps "--probe-db not given: the deploy-target leg is not measured ('Pending 0' would be an unproven claim)"
+    unmeasured queue-target "--probe-db not given: the deploy-target leg is not measured ('Pending 0' would be an unproven claim)"
   fi
 fi
 
 
 # ── P3. Global-namespace collision for NEW migrations ──────────────────────────
-# MySQL scopes FK *and* CHECK constraint names to the SCHEMA, not the table. A
-# sandbox schema proves syntax and behaviour; it can NEVER prove uniqueness in a
-# global namespace, because the colliding object is precisely what the sandbox
-# left out (see profiles/*.conf §4 for a real-incident instance of this).
+# Some databases (MySQL, for one) scope FK *and* CHECK constraint names to the
+# SCHEMA, not the table. A sandbox schema proves syntax and behaviour; it can NEVER
+# prove uniqueness in a global namespace, because the colliding object is precisely
+# what the sandbox left out (see profiles/example.conf, "global namespaces"). This
+# phase and the slug check below assume a SQL migration queue: with no queue
+# declared they print n/a.
 sec "P3 · global namespace (constraint / trigger / event names)"
 CAND=""
 if [ -z "$MIG_DIR" ]; then
@@ -588,7 +591,7 @@ else
       sort -u "$TMP/corpus" -o "$TMP/corpus"
       HITS=$(comm -12 "$TMP/names" "$TMP/corpus")
       if [ -n "$HITS" ]; then
-        stop namespace "name(s) already declared elsewhere in $MIG_DIR — collision (1826) is near-certain:"
+        stop namespace "name(s) already declared elsewhere in $MIG_DIR — a collision is near-certain:"
         [ "$DO_JSON" = 1 ] || printf '%s\n' "$HITS" | sed 's/^/         /'
       else
         warn namespace "$NN name(s) clear of the repo corpus — this is a LOWER BOUND, not a proof. Re-run with --probe-db before applying."
@@ -688,7 +691,7 @@ for t in $SHARED_TOOLS; do
   # Whole-line match over a newline-separated list ($TOUCHNOW is one path per
   # line): the old space-padded `case` matched only when exactly one path was dirty.
   if { printf '%s\n' "$TOUCHNOW"; printf '%s\n' ${TOUCH_ARR[@]+"${TOUCH_ARR[@]}"}; } | grep -Fxq -- "$t"; then
-    warn shared-tool "$t is a SHARED TOOL — only one dev has ever exercised it in his environment. Open a handoff item BEFORE landing (H-<date>-<k|l>-<slug>), and state which OS/host/PHP you tested on."
+    warn shared-tool "$t is a SHARED TOOL: environment-dependent constants in it are usually tested by its author alone. Open an arbitration item BEFORE landing (an id of the form PF_ARB_ID_RE describes) stating the system, host and interpreter version you tested on."
   fi
 done
 
@@ -796,8 +799,8 @@ fi
 # Dead-but-live surface: an open scrapping item with an explicitly empty gate is
 # a decision nobody scheduled, not a piece of debt. Surface it unprompted.
 if [ -f "$SCRAPPING" ]; then
-  NOGATE=$(grep -nE '^#[0-9]+ —.*(OUVERT|OPEN)' "$SCRAPPING" | grep -icE 'gate[^.]{0,30}(aucun|none)' 2>/dev/null || true); NOGATE=${NOGATE:-0}
-  [ "${NOGATE:-0}" -gt 0 ] && warn dead-surface "$NOGATE open scrapping item(s) declare NO gate — they are unscheduled decisions, not debt. Name them."
+  NOGATE=$(grep -nE '^#[0-9]+ —.*OPEN' "$SCRAPPING" | grep -icE 'gate[^.]{0,30}none' 2>/dev/null || true); NOGATE=${NOGATE:-0}
+  [ "${NOGATE:-0}" -gt 0 ] && warn dead-surface "$NOGATE open debt item(s) declare NO gate — they are unscheduled decisions, not debt. Name them."
 fi
 
 # ── P7. Memory-store health (delegate, don't reimplement) ──────────────────────

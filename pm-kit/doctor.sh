@@ -441,32 +441,31 @@ fi
 if [ -d "$PM_MEMORY_DIR" ]; then
     DEAD_N=0
     DEAD_LIST=""
-    # 🔑 SNAPSHOTS VERBATIM — comptés À PART, jamais en défaut (ruling dev B,
-    # 2026-08-13 : « garde les photocopies fidèles »). Un snapshot est une copie
-    # mot-à-mot d'un index d'origine ; ses liens ont été écrits depuis
-    # `claude-brain/agents/` et ne seront JAMAIS réécrits — les réécrire
-    # détruirait la seule chose qui fait sa valeur. Chacun porte en tête une CLÉ
-    # DE RÉSOLUTION (`<!-- CLE-RESOLUTION-LIENS -->`) qui donne le préfixe à
-    # appliquer. Les compter en défaut faisait 734 alertes permanentes, et
-    # ⭐ un détecteur qui crie à chaque passage cesse d'être lu le jour où il a
-    # raison. Le fichier n'est reconnu comme snapshot que s'il PORTE la clé :
-    # un nom qui y ressemble sans clé reste contrôlé normalement.
+    # VERBATIM SNAPSHOTS are counted APART and never as defects. A snapshot is a
+    # word-for-word copy of an earlier index; its links were written from the
+    # index's own directory and will NEVER be rewritten, because rewriting them
+    # would destroy the one thing that gives the snapshot its value. Each carries
+    # a LINK-RESOLUTION KEY in its head (`<!-- LINK-RESOLUTION-KEY -->`) naming the
+    # prefix to apply. Counting them as defects produced hundreds of permanent
+    # alerts on the origin project, and a detector that shouts on every run stops
+    # being read on the day it is right. A file is recognised as a snapshot only if
+    # it CARRIES the key: a name that merely looks like one is checked normally.
     SNAP_N=0
     ABS_N=0
     ABS_LIST=""
     while IFS= read -r f; do
         FDIR="$(dirname "$f")"
         IS_SNAP=0
-        grep -q 'CLE-RESOLUTION-LIENS' "$f" 2>/dev/null && IS_SNAP=1
+        grep -q 'LINK-RESOLUTION-KEY' "$f" 2>/dev/null && IS_SNAP=1
         while IFS= read -r p; do
             [ -z "$p" ] && continue
             case "$p" in http*|mailto:*|'<'*) continue ;; esac
-            # Un chemin ABSOLU n'est pas un lien relatif — le compter ici
-            # produisait une alerte permanente et FAUSSE de nom. Ceux qu'on
-            # trouve visent la mémoire auto-recall PERSONNELLE d'un dev
-            # (/home/<dev>/.claude/projects/…) : par construction elle n'existe
-            # pas sur la machine de l'autre, et rien dans ce dépôt ne peut la
-            # réparer. Compté à part, dit une fois, jamais en défaut.
+            # An ABSOLUTE path is not a relative link: counting it here produced a
+            # permanent, FALSE alert. The ones found point into a developer's
+            # PERSONAL auto-recall memory (/home/<dev>/.claude/projects/...), which
+            # by construction does not exist on another developer's machine and
+            # which nothing in this repository can repair. Counted apart, said
+            # once, never a defect.
             case "$p" in
                 /*) if [ ! -e "$p" ]; then
                         ABS_N=$((ABS_N+1))
@@ -493,10 +492,10 @@ if [ -d "$PM_MEMORY_DIR" ]; then
         ok "no dead relative link between topic files"
     fi
     if [ "$SNAP_N" -gt 0 ]; then
-        ok "snapshots verbatim: ${SNAP_N} lien(s) index-relatifs, NON comptés en défaut (clé de résolution en tête de chaque fichier)"
+        ok "verbatim snapshots: ${SNAP_N} index-relative link(s), NOT counted as defects (each file carries a link-resolution key in its head)"
     fi
     if [ "$ABS_N" -gt 0 ]; then
-        ok "${ABS_N} lien(s) en chemin ABSOLU vers la mémoire personnelle d'un dev — irréparables depuis ce dépôt, jamais en défaut :"
+        ok "${ABS_N} link(s) with an ABSOLUTE path into a developer's personal memory: not repairable from this repository, never counted as defects:"
         printf '%s' "$ABS_LIST"
     fi
 fi

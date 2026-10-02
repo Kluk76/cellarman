@@ -9,8 +9,7 @@
 #
 # One TSV row per topic file:
 #   path <TAB> bytes <TAB> mtime <TAB> loads <TAB> last_load <TAB> triggers <TAB> title
-# triggers = harvested from the file's own leading "> Trigger …" / "> Déclencheur …"
-# blockquote lines; title = first "# " heading. loads/last_load come from the
+# triggers = harvested from the file's own leading "> Trigger ..." blockquote lines; title = first "# " heading. loads/last_load come from the
 # per-machine telemetry log (mechanical, not self-reported).
 #
 # Usage:
@@ -93,7 +92,7 @@ fi
         # (display is shortened at print time instead — see the grep mode).
         head_block="$(head -c 6144 "$f")"
         triggers="$(printf '%s\n' "$head_block" \
-            | grep -iE '^> .*(trig(ger)?|déclench)' \
+            | grep -iE '^> .*trigger' \
             | sed 's/^> *//' | tr -d '*`' | tr '\n\t' '  ' | sed 's/ *$//')"
         title="$(printf '%s\n' "$head_block" \
             | grep -m1 '^# ' | sed 's/^# *//' | tr -d '*`' | tr '\t' ' ' | cut -c1-160)"

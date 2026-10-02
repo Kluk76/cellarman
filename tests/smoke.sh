@@ -342,16 +342,16 @@ mk_proj p16 remote
 prof_set PF_QUEUE_DIR '""'; prof_set PF_QUEUE_STAGING '""'; prof_set PF_TARGET_HOST '""'
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 { has 'ok   mig-upstream.*n/a (no queue declared)' "$OUTT" && has 'ok   mig-local.*n/a (no queue declared)' "$OUTT" \
-  && has 'ok   mig-draft.*n/a (no queue declared)' "$OUTT" && has 'ok   mig-vps.*n/a (no queue declared)' "$OUTT" \
+  && has 'ok   mig-draft.*n/a (no queue declared)' "$OUTT" && has 'ok   queue-target.*n/a (no queue declared)' "$OUTT" \
   && has 'ok   namespace.*n/a (no queue declared)' "$OUTT" && has 'ok   slug-drift.*n/a (no queue declared)' "$OUTT" \
   && lacks 'no migration on' "$OUTT" && lacks 'no unpushed migration' "$OUTT"; }; check A16 "empty PF_QUEUE_DIR: every queue phase says n/a and measures nothing" $?
 mk_proj p16b remote
 prof_set PF_TARGET_HOST '""'; prof_set PF_QUEUE_TARGET '""'
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
-{ has 'ok   mig-vps.*n/a (no deploy target declared)' "$OUTT" && lacks 'WARN mig-vps' "$OUTT" && has 'ok   mig-upstream.*no migration on' "$OUTT"; }; check 1.6 "empty PF_TARGET_HOST: the target leg is n/a, the queue is still measured" $?
+{ has 'ok   queue-target.*n/a (no deploy target declared)' "$OUTT" && lacks 'WARN queue-target' "$OUTT" && has 'ok   mig-upstream.*no migration on' "$OUTT"; }; check 1.6 "empty PF_TARGET_HOST: the target leg is n/a, the queue is still measured" $?
 mk_proj p16c remote
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
-{ has 'UNMEASURED mig-vps' "$OUTT" && [ "$RC" = 1 ]; }; check 1.6 "a declared target without --probe-db is UNMEASURED and keeps exit 1" $?
+{ has 'UNMEASURED queue-target' "$OUTT" && [ "$RC" = 1 ]; }; check 1.6 "a declared target without --probe-db is UNMEASURED and keeps exit 1" $?
 
 # CLEAR: everything declared is measured and clean
 mk_proj p16d remote
@@ -674,10 +674,10 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths claude-brain/FROZ
 # A3 — unmeasured is its own level
 mk_proj pun remote
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --json
-{ has '"level":"unmeasured","check":"mig-vps"' && has '"unmeasured":[1-9]'; }; check A3 "--json: a declared-but-unreached target is level \"unmeasured\", counted in the summary object" $?
+{ has '"level":"unmeasured","check":"queue-target"' && has '"unmeasured":[1-9]'; }; check A3 "--json: a declared-but-unreached target is level \"unmeasured\", counted in the summary object" $?
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
-{ has 'UNMEASURED mig-vps' "$OUTT" && has '[0-9]* unmeasured' "$OUTT" && [ "$RC" = 1 ]; }; check A3 "text: UNMEASURED line, counted separately in the verdict, exit 1 (rc=$RC)" $?
-{ lacks 'WARN mig-vps' "$OUTT" && lacks 'info *mig-vps' "$OUTT"; }; check A3 "text: unmeasured is neither WARN nor info" $?
+{ has 'UNMEASURED queue-target' "$OUTT" && has '[0-9]* unmeasured' "$OUTT" && [ "$RC" = 1 ]; }; check A3 "text: UNMEASURED line, counted separately in the verdict, exit 1 (rc=$RC)" $?
+{ lacks 'WARN queue-target' "$OUTT" && lacks 'info *queue-target' "$OUTT"; }; check A3 "text: unmeasured is neither WARN nor info" $?
 # undeclared => n/a, never unmeasured
 prof_set PF_QUEUE_DIR '""'; prof_set PF_QUEUE_STAGING '""'; prof_set PF_TARGET_HOST '""'; prof_set PF_ALWAYS_PATHS '""'
 prof_set PF_OWNERSHIP_MAP '""'; prof_set PF_ARB_FILE '""'; prof_set PF_RAILS_OUTPUT '""'; prof_set PM_DOCTOR '""'
@@ -844,19 +844,19 @@ commit_all "two queued changes"
 prof_set PF_TARGET_HOST '"nobody@host.invalid"'
 prof_set PF_QUEUE_TARGET "'printf \"202601010000_a_one.sql\\n202601010001_a_two.sql\\n\"'"
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
-{ has 'ok   mig-vps.*deploy target == ' "$OUTT"; }; check A9c "PF_QUEUE_TARGET is used, not an ssh to PF_TARGET_HOST (target == reference)" $?
+{ has 'ok   queue-target.*deploy target == ' "$OUTT"; }; check A9c "PF_QUEUE_TARGET is used, not an ssh to PF_TARGET_HOST (target == reference)" $?
 prof_set PF_QUEUE_TARGET "'printf \"202601010000_a_one.sql\\n\"'"
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
-{ has 'WARN mig-vps.*not yet on the deploy target' "$OUTT" && has '202601010001_a_two.sql' "$OUTT"; }; check A9c "a queued change missing from the target is named" $?
+{ has 'WARN queue-target.*not yet on the deploy target' "$OUTT" && has '202601010001_a_two.sql' "$OUTT"; }; check A9c "a queued change missing from the target is named" $?
 prof_set PF_QUEUE_TARGET "'printf \"202601010000_a_one.sql\\n202601010001_a_two.sql\\n202601010099_a_rogue.sql\\n\"'"
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
-{ [ "$RC" = 2 ] && has 'STOP mig-vps.*on the deploy target and NOT on' "$OUTT" && has 'rogue' "$OUTT"; }; check A9c "a change on the target that git does not have STOPs (rc=$RC)" $?
+{ [ "$RC" = 2 ] && has 'STOP queue-target.*on the deploy target and NOT on' "$OUTT" && has 'rogue' "$OUTT"; }; check A9c "a change on the target that git does not have STOPs (rc=$RC)" $?
 prof_set PF_QUEUE_TARGET "'false'"
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
-{ has 'UNMEASURED mig-vps.*PF_QUEUE_TARGET command failed' "$OUTT"; }; check A9c "a failing PF_QUEUE_TARGET command is UNMEASURED" $?
+{ has 'UNMEASURED queue-target.*PF_QUEUE_TARGET command failed' "$OUTT"; }; check A9c "a failing PF_QUEUE_TARGET command is UNMEASURED" $?
 prof_set PF_QUEUE_TARGET '""'; prof_set PF_TARGET_HOST '""'
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
-{ has 'ok   mig-vps.*n/a (no deploy target declared)' "$OUTT"; }; check A9c "neither declared: n/a" $?
+{ has 'ok   queue-target.*n/a (no deploy target declared)' "$OUTT"; }; check A9c "neither declared: n/a" $?
 # (d) doctor: a repository with no remote has nothing to fetch
 mk_proj pa9d noremote
 run bash "$KITREL/doctor.sh"
@@ -957,6 +957,24 @@ run bash "$KITREL/doctor.sh"
 prof_set PF_ARB_FILE '""'
 run bash "$KITREL/doctor.sh"
 { has 'register router vs bodies: n/a' && lacks 'STATES DIVERGE'; }; check 7g "no PF_ARB_FILE: section 12 is n/a" $?
+
+###############################################################################
+# 10 — scripts, skeleton and profile carry no French and no origin-project noun
+###############################################################################
+cd "$C" || exit 64
+SCAN="pm-kit/doctor.sh pm-kit/catalog.sh pm-kit/load-telemetry.sh pm-kit/lint-claims-session.sh pm-kit/kernel skeleton profiles pm-kit.conf.example .github tests/ports.sh"
+# accented Latin letters (UTF-8 lead bytes C3 and C5), anywhere in a script or template
+# shellcheck disable=SC2086
+LC_ALL=C grep -rln "$(printf '\303')\|$(printf '\305')" $SCAN > "$SB/accents.txt" 2>/dev/null
+{ [ ! -s "$SB/accents.txt" ]; }; check 10 "no accented character in any script, skeleton file or profile ($(tr '\n' ' ' < "$SB/accents.txt"))" $?
+# shellcheck disable=SC2086
+grep -rnE 'VPS|tailnet|tsk_|next-migration|00-audit|H-<date>|<k\|l>|\[kl\]|k\+l|HORS-|CLE-RESOLUTION|OUVERT|aucun|\(1826\)|error 1[0-9][0-9][0-9]' $SCAN > "$SB/nouns.txt" 2>/dev/null
+{ [ ! -s "$SB/nouns.txt" ]; }; check 10 "no origin-project noun (VPS, tailnet, tsk_, next-migration, 00-audit, [kl], k+l, HORS-, CLE-RESOLUTION, MySQL error numbers) in the scripts ($(head -1 "$SB/nouns.txt" | cut -c1-80))" $?
+# the old closure words were English-only checks of French vocabulary; none may be hardcoded
+# shellcheck disable=SC2086
+grep -rnE 'CLOS\||RÉPONDU|CADUQUE|RESOLVED\|' pm-kit/doctor.sh pm-kit/kernel/pm-preflight.sh | grep -v 'PF_ARB_CLOSED_RE\|ARB_CLOSED_RE=' > "$SB/closure.txt" 2>/dev/null
+{ [ ! -s "$SB/closure.txt" ]; }; check 10 "the closure vocabulary appears only as the PF_ARB_CLOSED_RE default" $?
+cd "$PROJ" 2>/dev/null || true
 
 ###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"

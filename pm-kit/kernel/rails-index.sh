@@ -24,14 +24,14 @@
 #      reads it, directly or transitively (a view-of-a-view is still in
 #      scope). This is the condition that makes the tool worth shipping: miss
 #      it and a fast recall becomes a MISSED recall. The dependency graph is a
-#      profile-owned, cached SSH probe (kernel does not know MySQL or
-#      information_schema) — --refresh-graph regenerates it; without a cache
+#      profile-owned, cached probe (the kernel does not know how your
+#      database or build system is reached) — --refresh-graph regenerates it; without a cache
 #      AND without --refresh-graph, expansion is visibly UNMEASURED, never a
 #      silent green.
 #
 # OUTPUT
 #   PF_RAILS_OUTPUT (state/RAILS-BY-ARTEFACT.tsv), 5 tab-separated columns:
-#     artefact <TAB> severite <TAB> rail (<=~300c) <TAB> source (file#line) <TAB> origine (direct|via:<parent>)
+#     artefact <TAB> severity <TAB> rail (<=~300c) <TAB> source (file#line) <TAB> origin (direct|via:<parent>|column:<col>)
 #   Generated + gitignored — every clone rebuilds it; never a merge surface.
 #
 # EXIT CODES
@@ -133,10 +133,10 @@ fi
 # profile; the portable kernel stays free of house conventions.
 # ⚠️ Anchored with $ and matched against the whole candidate — keep it that way,
 # an unanchored variant would classify `foo.php.bak` as a file.
-# 🔴 `[.]`, PAS `\.` — cette valeur transite par `awk -v`, qui interprète les
-# séquences d'échappement de son argument : `\.` n'est pas un échappement awk
-# défini et se ferait manger en `.` (= n'importe quel caractère) selon
-# l'implémentation. `[.]` est strictement équivalent et immunisé.
+# Write `[.]`, NOT `\.`: this value travels through `awk -v`, which interprets the
+# escape sequences of its argument, and `\.` is not a defined awk escape, so some
+# implementations turn it into a bare `.` (any character). `[.]` is strictly
+# equivalent and immune.
 : "${FILE_RE:=${PF_ARTEFACT_FILE_RE:-[.](php|js|sh|css|sql|ts|py|md|json|yml|yaml)$}}"
 : "${SEVERITY_MARKERS:=${PF_SEVERITY_MARKERS:-}}"
 : "${TRUNC:=${PF_RAILS_TRUNCATE:-300}}"
@@ -300,7 +300,7 @@ function head_prefix_ok(s,   changed) {
 
 # tag_markers(buf) — 2026-08-19 ruling: severity binds to the HEAD marker of a
 # fragment, never to an inline occurrence. Measured that day: 780 `⛔` sat
-# INLINE in house prose ("⛔ jamais X" = emphasis, not a classification) and
+# INLINE in house prose ("⛔ never X" = emphasis, not a classification) and
 # the OLD unconditional gsub (any marker, anywhere, splits+reclassifies)
 # turned every one of them into a fresh STOP fragment — P8 saturated (11
 # blocking on a single touched file) on records whose AUTHOR never wrote a
@@ -412,7 +412,7 @@ function process_record(buf, head_fnr,
           dot = index(content, ".")
           parent = substr(content, 1, dot - 1)
           if (parent ~ TABLE_RE) {
-            printf "%s\t%s\t%s\t%s#%d\tcolonne:%s\n", parent, lvl, rtext, SRC, head_fnr, content
+            printf "%s\t%s\t%s\t%s#%d\tcolumn:%s\n", parent, lvl, rtext, SRC, head_fnr, content
             total_rows++
             parent_rows++
             rec_rows++
