@@ -135,6 +135,11 @@ fi
 : "${RAILS_TSV:=${PF_RAILS_OUTPUT:-}}"
 : "${OWNERSHIP_PROSE:=${PF_OWNERSHIP_PROSE:-}}"
 : "${ALWAYS_PATHS:=${PF_ALWAYS_PATHS:-}}"
+# PF_DRIFT_SLUG_RE: despite the name, a SED SCRIPT that reduces a migration's
+# basename (no .sql) to its subject word. Default is author-agnostic: any single
+# lowercase initial, so a project that never set it is not blind to its own devs.
+DRIFT_SLUG_SED="${PF_DRIFT_SLUG_RE:-}"
+[ -n "$DRIFT_SLUG_SED" ] || DRIFT_SLUG_SED='s/^[0-9]\{12\}_[a-z]_//; s/[-_].*$//'
 
 # ── governance population — appended to PATHS on EVERY run, not opt-in per call ─
 # A caller's --paths names the build's OWN files; it has no reason to also name
@@ -468,7 +473,7 @@ if [ -n "$CAND" ]; then
   for f in $CAND; do
     [ -f "$f" ] || continue
     B=$(basename "$f" .sql)
-    SLUG=$(printf '%s' "$B" | sed 's/^[0-9]\{12\}_[kl]_//; s/[-_].*$//' | tr 'A-Z' 'a-z')
+    SLUG=$(printf '%s' "$B" | sed "$DRIFT_SLUG_SED" | tr 'A-Z' 'a-z')
     TBLS=$(grep -oiE 'CREATE[[:space:]]+TABLE([[:space:]]+IF[[:space:]]+NOT[[:space:]]+EXISTS)?[[:space:]]+`?[A-Za-z0-9_]+`?' "$f" \
            | awk '{print $NF}' | tr -d '`' | tr 'A-Z' 'a-z' | sort -u)
     [ -z "$TBLS" ] && continue

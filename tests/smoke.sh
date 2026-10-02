@@ -358,6 +358,23 @@ run env ACME_DEV=a bash bin/pm-preflight.sh; strip
 { [ "$RC" = 0 ] && has 'CLEAR' "$OUTT"; }; check 1.6 "exit 0 (CLEAR) is reachable on a clean, fully-measured state (rc=$RC)" $?
 
 ###############################################################################
+# A2 — slug drift consumes PF_DRIFT_SLUG_RE (default: any [a-z] initial)
+###############################################################################
+mk_proj pa2 remote
+mkdir -p db/migrations
+printf 'CREATE TABLE billing_invoices (id INT);\n' > db/migrations/202601011200_a_billing_invoices.sql
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'ok   slug-drift' "$OUTT" && lacks "slug '202601011200'" "$OUTT"; }; check A2 "a profile-conform '_a_' migration raises no false slug-drift (rc=$RC)" $?
+printf 'CREATE TABLE crm_contacts (id INT);\n' > db/migrations/202601011201_a_billing_other.sql
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has "WARN slug-drift.*slug 'billing' creates table 'crm_contacts'" "$OUTT"; }; check A2 "a real divergence (slug billing, table crm_*) still warns" $?
+printf 'CREATE TABLE ledger_rows (id INT);\n' > db/migrations/20260101__ledger_rows.sql
+rm -f db/migrations/2026010112*.sql
+prof_set PF_DRIFT_SLUG_RE "'s/^[0-9]*__//; s/[-_].*\$//'"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'ok   slug-drift' "$OUTT"; }; check A2 "a custom PF_DRIFT_SLUG_RE is honoured" $?
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"
