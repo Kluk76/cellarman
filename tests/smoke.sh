@@ -472,6 +472,29 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 { [ "$RC" = 2 ] && has 'STOP arbitration.*overdue-item — 10 d open, past the 7d' "$OUTT"; }; check A17 "an item 10 days old (past STOP_DAYS=7) STOPs, exit 2 (rc=$RC)" $?
 
 ###############################################################################
+# A3 — a live claim stays live unless its last row is closed/abandoned
+###############################################################################
+mk_proj pa3 remote
+printf 'own a logic src/*\n' > claude-brain/OWNERSHIP.map
+TODAY_ISO="$(date -u +%F)"; LINT="$KITREL/kernel/ownership-lint.sh"
+CL=claude-brain/CLAIMS.tsv
+printf 'open\t%s\tb\tbilling-rework\tsrc/billing*\tnote\ts-deadbeef\n' "$TODAY_ISO" > $CL
+run bash $LINT --dev a src/billing.php
+{ [ "$RC" = 2 ] && has "under an OPEN CLAIM by 'b'"; }; check A3 "an open claim by the other dev blocks (rc=$RC)" $?
+printf 'restated\t%s\tb\tbilling-rework\tsrc/billing*\tstill on it\ts-deadbeef\n' "$TODAY_ISO" >> $CL
+run bash $LINT --dev a src/billing.php
+{ [ "$RC" = 2 ] && has "under an OPEN CLAIM by 'b'"; }; check A3 "a restated row keeps the claim live (rc=$RC)" $?
+printf 'closed\t%s\tb\tbilling-rework\tsrc/billing*\tdone\ts-deadbeef\n' "$TODAY_ISO" >> $CL
+run bash $LINT --dev a src/billing.php
+{ [ "$RC" = 0 ] && lacks 'CLAIM'; }; check A3 "a closed last row releases it (rc=$RC)" $?
+printf 'open\t%s\tb\tother\tsrc/other*\tn\ts-1\nabandoned\t%s\tb\tother\tsrc/other*\tn\ts-1\n' "$TODAY_ISO" "$TODAY_ISO" >> $CL
+run bash $LINT --dev a src/other.php
+{ [ "$RC" = 0 ] && lacks 'CLAIM'; }; check A3 "an abandoned last row releases it (rc=$RC)" $?
+printf 'restated\t%s\tb\treopened\tsrc/billing*\tn\ts-2\n' "$TODAY_ISO" >> $CL
+run bash $LINT --dev a src/billing.php
+{ [ "$RC" = 2 ] && has "'reopened'"; }; check A3 "a slug whose only row is restated is live (rc=$RC)" $?
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

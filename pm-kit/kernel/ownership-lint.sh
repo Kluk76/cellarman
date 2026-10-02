@@ -484,12 +484,19 @@ if [ -f "$CLAIMS" ]; then
     { k = $3 "\t" $4
       if (!(k in seen)) { seen[k] = 1; ord[++n] = k }
       st[k] = $1; rec[k] = $0 }
-    END { for (i = 1; i <= n; i++) if (st[ord[i]] == "open") print rec[ord[i]] }
+    # A claim is LIVE unless its last row is TERMINAL (closed / abandoned): any
+    # other state — open, restated (the ageing message itself says "close it or
+    # restate it"), a state this vocabulary has not met yet — keeps it held.
+    # Comparing against == "open" made a `restated` row erase a live claim held
+    # by someone else; enumerating the TERMINAL states fails closed instead.
+    # (No ASCII apostrophe in this block: it sits in shell single quotes.)
+    END { for (i = 1; i <= n; i++) if (st[ord[i]] != "closed" && st[ord[i]] != "abandoned") print rec[ord[i]] }
   ' "$CLAIMS")"
 
   for P in $PATHS; do
     while IFS="$(printf '\t')" read -r STATE OPENED CDEV SLUG CGLOB NOTE CSESSION; do
-      case "${STATE:-}" in ''|'#'*|closed) continue ;; esac
+      # Same terminal set as the reduction above — kept in step deliberately.
+      case "${STATE:-}" in ''|'#'*|closed|abandoned) continue ;; esac
       [ -z "${CGLOB:-}" ] && continue
       # CGLOB is a SPACE-separated list of globs (CLAIMS.tsv's own documented
       # format) — test each one, not the whole field as a single pattern.
@@ -537,7 +544,7 @@ EOF_CLAIMS_OPEN
   CLAIMS_AGING="$(awk -F'\t' -v today="$TODAY" '
     function g(y,m,d,  a,yy,mm){a=int((14-m)/12);yy=y+4800-a;mm=m+12*a-3;
       return d+int((153*mm+2)/5)+365*yy+int(yy/4)-int(yy/100)+int(yy/400)-32045}
-    $1=="open" {
+    $1!="" && $4!="" {
       split($2,o,"-"); split(today,t,"-")
       age=g(t[1]+0,t[2]+0,t[3]+0)-g(o[1]+0,o[2]+0,o[3]+0)
       if (age>3) printf "  ⚠    claim %s by %s is %d days old — close it or restate it\n", $4, $3, age
