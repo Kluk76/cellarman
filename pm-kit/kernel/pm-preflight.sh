@@ -617,11 +617,17 @@ fi
 # ── P7. Memory-store health (delegate, don't reimplement) ──────────────────────
 sec "P7 · PM memory"
 if [ -x "$DOCTOR" ]; then
-  DOUT=$("$DOCTOR" 2>/dev/null | grep -E 'WARN|FAIL' || true)
+  # ANCHORED on the doctor's own line prefix. An unanchored `grep -E 'WARN|FAIL'`
+  # also matched listed FILENAMES (an orphan named FAILOVER-notes.md) and the
+  # summary text, and STOPped on a doctor that reported "0 fail(s)". The STOP
+  # quotes the doctor's own FAIL line(s) — a hard-coded cause sends the reader
+  # chasing the wrong problem.
+  DOUT=$("$DOCTOR" 2>/dev/null | grep -E '^pm-doctor: (WARN|FAIL) ' || true)
   if [ -n "$DOUT" ]; then
     [ "$DO_JSON" = 1 ] || printf '%s\n' "$DOUT" | sed 's/^/         /'
-    printf '%s\n' "$DOUT" | grep -q FAIL && stop memory "doctor.sh reports FAIL — index over hard budget or dangling links"
-    printf '%s\n' "$DOUT" | grep -q WARN && warn memory "doctor.sh warnings above — this is where the debt lives; '0 fail' ≠ 'in budget'"
+    DFAIL=$(printf '%s\n' "$DOUT" | awk '/^pm-doctor: FAIL /{ sub(/^pm-doctor: FAIL — /, ""); printf "%s%s", (n++ ? " · " : ""), $0 }')
+    [ -n "$DFAIL" ] && stop memory "doctor.sh FAIL: $DFAIL"
+    printf '%s\n' "$DOUT" | grep -q '^pm-doctor: WARN ' && warn memory "doctor.sh warnings above — this is where the debt lives; '0 fail' ≠ 'in budget'"
   else
     ok memory "doctor.sh clean"
   fi

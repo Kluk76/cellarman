@@ -396,6 +396,22 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 git checkout -q -- bin/deploy.sh src/billing.php
 
 ###############################################################################
+# A6 — P7 parses the doctor's own WARN/FAIL lines and names the real failure
+###############################################################################
+mk_proj pa6 remote
+printf '# failover\n' > "$MEMDIR/FAILOVER-notes.md"
+run bash "$KITREL/doctor.sh" --strict; DRC=$RC; DOUTF="$OUT"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ [ "$DRC" = 0 ] && has '0 fail(s)' "$DOUTF" && lacks 'STOP memory' "$OUTT" && has 'WARN memory' "$OUTT"; }; check A6 "doctor reports 0 fails (orphan named FAILOVER-*): no STOP (doctor rc=$DRC)" $?
+rm -f "$MEMDIR/FAILOVER-notes.md"
+printf '\nsee [ghost](acme-pm-memory/ghost.md)\n' >> "$INDEX"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ [ "$RC" = 2 ] && has 'STOP memory.*doctor.sh FAIL: index links to missing topic files' "$OUTT" && lacks 'over hard budget' "$OUTT"; }; check A6 "a real doctor FAIL STOPs and quotes the actual failure (rc=$RC)" $?
+rm -f "$INDEX"; cp "$C/skeleton/index-seed.md" "$INDEX"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ lacks 'STOP memory' "$OUTT"; }; check A6 "restoring the seed index clears the STOP" $?
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"
