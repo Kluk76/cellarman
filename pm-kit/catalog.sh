@@ -129,8 +129,8 @@ case "$MODE" in
         # than the one given — a plausible-looking result over the wrong
         # population. Substring semantics mean short terms over-match
         # ("chart" hits "charter") — anchor when it matters.
-        PM_CATALOG_PAT="$PATTERN" awk -F'\t' '
-            BEGIN { pat = tolower(ENVIRON["PM_CATALOG_PAT"]) }
+        CATALOG_PAT="$PATTERN" awk -F'\t' '
+            BEGIN { pat = tolower(ENVIRON["CATALOG_PAT"]) }
             NR==1 { next }
             tolower($1 FS $6 FS $7) ~ pat {
                 trig = $6

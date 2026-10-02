@@ -84,3 +84,23 @@ PM_ARCHIVE_MAX=3
 # have is the signal, not a byte-for-byte diff.
 # PM_SKILLS_LIVE="$HOME/.claude/skills"
 # PM_SKILLS_MIRROR="$REPO_ROOT/claude-brain/skills"
+
+# ── Agent-definition drift: path rewrites (optional) ────────────────────────
+# Some install flows rewrite absolute paths when they copy the agent file (a
+# bootstrap script that turns the author's $HOME and repo root into the
+# installing machine's). The doctor applies the SAME rewrite before comparing the
+# repository copy with the installed one, so a correctly installed copy does not
+# read as drift on any machine but the author's. Everything here is optional; with
+# nothing set the comparison is byte for byte.
+#   PM_BOOTSTRAP_SOURCE_ROOT   the original repo root the installer rewrites FROM
+#   PM_BOOTSTRAP_SOURCE_HOME   the original $HOME the installer rewrites FROM
+#   PM_PATH_ALIASES            colon-separated old=new path fragments, for what the
+#                              two above cannot express (a historical project rename)
+# PM_BOOTSTRAP_SOURCE_ROOT="/home/alice/projects/myapp"
+# PM_BOOTSTRAP_SOURCE_HOME="/home/alice"
+# PM_PATH_ALIASES="/projects/oldname=/projects/newname"
+
+# ── Memory sync (optional) ──────────────────────────────────────────────────
+# Extra repo-relative files or directories that pm-sync, the session ledger and
+# the report-back gate treat as memory, besides PM_MEMORY_DIR and PM_INDEX.
+# PM_SYNC_EXTRA_PATHS="claude-brain/agents/acme-pm-state.md"

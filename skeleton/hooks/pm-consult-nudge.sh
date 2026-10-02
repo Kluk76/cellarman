@@ -52,7 +52,7 @@
 set +e
 [ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
 
-PM_NAME="${1:-${PM_AGENT_NAME:-}}"
+AGENT_NAME="${1:-${PM_AGENT_NAME:-}}"
 INPUT="$(cat 2>/dev/null)"
 
 AGENT_TYPE=""
@@ -64,14 +64,14 @@ if [ -n "$INPUT" ]; then
             | sed -n 's/.*"agent_type"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' 2>/dev/null)"
     fi
 fi
-if [ -n "$PM_NAME" ] && [ "$AGENT_TYPE" = "$PM_NAME" ]; then
+if [ -n "$AGENT_NAME" ] && [ "$AGENT_TYPE" = "$AGENT_NAME" ]; then
     exit 0
 fi
 
-case "$PM_NAME" in
+case "$AGENT_NAME" in
     "") WHO="the project's PM subagent" ;;
     *[!A-Za-z0-9._-]*) WHO="the project's PM subagent" ;;
-    *) WHO="the \`$PM_NAME\` subagent" ;;
+    *) WHO="the \`$AGENT_NAME\` subagent" ;;
 esac
 
 cat 2>/dev/null <<EOF

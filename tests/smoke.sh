@@ -993,10 +993,17 @@ run bash tests/conf-surface.sh --conf "$SB/conf-agent2.conf"
 cp profiles/example.conf "$SB/conf-fam.conf"; printf 'DEV_c="Cy Dube|^Cy Dube$"\n' >> "$SB/conf-fam.conf"
 run bash tests/conf-surface.sh --conf "$SB/conf-fam.conf"
 { [ "$RC" = 0 ]; }; check 11 "a DEV_<id> family member counts as read (expanded by prefix) (rc=$RC)" $?
-rm -rf "$SB/kitcopy"; mkdir -p "$SB/kitcopy"; cp -R pm-kit "$SB/kitcopy/pm-kit"
+rm -rf "$SB/kitcopy"; mkdir -p "$SB/kitcopy"; cp -R pm-kit skeleton "$SB/kitcopy/"; cp pm-kit.conf.example "$SB/kitcopy/"
 printf ': "${NEW_THING:=${PF_NEW_THING:-}}"\n' >> "$SB/kitcopy/pm-kit/kernel/pm-preflight.sh"
-run bash tests/conf-surface.sh --conf profiles/example.conf --kit "$SB/kitcopy"
+run bash tests/conf-surface.sh --conf profiles/example.conf --kitconf pm-kit.conf.example --kit "$SB/kitcopy"
 { [ "$RC" = 1 ] && has 'UNDOCUMENTED PF_NEW_THING'; }; check 11 "a script reading a variable the profile never mentions fails the surface test (rc=$RC)" $?
+cp pm-kit.conf.example "$SB/kitconf-unread.example"; printf 'PM_BOGUS_KNOB=1\n' >> "$SB/kitconf-unread.example"
+run bash tests/conf-surface.sh --kitconf "$SB/kitconf-unread.example"
+{ [ "$RC" = 1 ] && has 'UNREAD PM_BOGUS_KNOB.*pm-kit.conf'; }; check 11 "pm-kit.conf.example is held to the same rule: an unread PM_ variable fails (rc=$RC)" $?
+rm -rf "$SB/kitcopy2"; mkdir -p "$SB/kitcopy2"; cp -R pm-kit skeleton "$SB/kitcopy2/"; cp pm-kit.conf.example "$SB/kitcopy2/"
+printf ': "${PM_NEW_KNOB:-}"\n' >> "$SB/kitcopy2/pm-kit/catalog.sh"
+run bash tests/conf-surface.sh --conf profiles/example.conf --kitconf pm-kit.conf.example --kit "$SB/kitcopy2"
+{ [ "$RC" = 1 ] && has 'UNDOCUMENTED PM_NEW_KNOB.*pm-kit.conf'; }; check 11 "a script reading a pm-kit.conf variable the example never mentions fails (rc=$RC)" $?
 run bash tests/conf-surface.sh --conf "$SB/no-such.conf"
 { [ "$RC" = 3 ]; }; check 11 "no profile: did not run, exit 3 (rc=$RC)" $?
 cd "$PROJ" 2>/dev/null || true
