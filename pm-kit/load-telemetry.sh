@@ -6,6 +6,9 @@
 #
 # Contract: silent, fast, ALWAYS exit 0 (a hook must never break the session).
 # Fires for subagent Reads too — that is the point (the PM is a subagent).
+# Started by another shell (zsh, sh)? These scripts use bash-only expansions
+# (e.g. ${VAR:+-flag "$VAR"} word-splitting) — re-exec under bash, never degrade.
+[ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
 set -u
 
 KIT_DIR="$(cd "$(dirname "$0")" && pwd)"

@@ -22,6 +22,9 @@
 #
 # Generic: zero project knowledge; everything comes from pm-kit.conf.
 # The catalog is DERIVED + per-machine (it embeds telemetry) — gitignore it.
+# Started by another shell (zsh, sh)? These scripts use bash-only expansions
+# (e.g. ${VAR:+-flag "$VAR"} word-splitting) — re-exec under bash, never degrade.
+[ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
 set -u
 
 KIT_DIR="$(cd "$(dirname "$0")" && pwd)"

@@ -103,6 +103,18 @@ run bash "$KITREL/kernel/rails-index.sh"
 { [ "$RC" != 2 ] && has "CORPUS.*rails-register/a.md"; }; check 1.3 "a fully resolving extra corpus is mined (rc=$RC)" $?
 
 ###############################################################################
+# B5 — a script started by zsh re-executes under bash
+###############################################################################
+if command -v zsh >/dev/null 2>&1; then
+  mkdir -p "$MEMDIR"; printf '# t\n' > "$MEMDIR/journal.md"
+  run zsh "$KITREL/doctor.sh"
+  { lacks 'unknown predicate' && has 'no topic file over'; }; check B5 "doctor.sh run via zsh measures check 6 (rc=$RC)" $?
+  rm -f "$MEMDIR/journal.md"
+else
+  skip B5 "zsh not installed"
+fi
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

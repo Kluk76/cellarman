@@ -48,6 +48,9 @@
 #        EXACTLY ONE match
 #   No profile found ⇒ STOP (exit 2). This tool has no meaning without one.
 
+# Started by another shell (zsh, sh)? These scripts use bash-only expansions
+# (e.g. ${VAR:+-flag "$VAR"} word-splitting) — re-exec under bash, never degrade.
+[ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
 set -u
 
 # ── locate ──────────────────────────────────────────────────────────────────────

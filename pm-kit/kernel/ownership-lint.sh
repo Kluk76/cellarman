@@ -50,6 +50,9 @@
 #   RATIFIED="RATIFIED: k+l, 2026-08-06" ownership-lint.sh PATH...
 #   git diff --name-only | xargs ownership-lint.sh
 
+# Started by another shell (zsh, sh)? These scripts use bash-only expansions
+# (e.g. ${VAR:+-flag "$VAR"} word-splitting) — re-exec under bash, never degrade.
+[ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
 set -u
 
 KIT_DIR="$(cd "$(dirname "$0")" && pwd)"

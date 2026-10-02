@@ -55,6 +55,9 @@
 #   - MUST NOT write outside $TMPDIR and the declared output/cache paths.
 #   - MUST distinguish "measured and clean" from "could not measure" — see the
 #     UNMEASURED banner in the expansion phase.
+# Started by another shell (zsh, sh)? These scripts use bash-only expansions
+# (e.g. ${VAR:+-flag "$VAR"} word-splitting) — re-exec under bash, never degrade.
+[ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
 set -u
 
 # ── locate (verbatim copy of pm-preflight.sh's discovery block — the two

@@ -13,6 +13,9 @@
 # Default mode always exits 0 (safe to call from hooks). --strict exits 1 if
 # any FAIL-level finding is present (index over hard budget, dangling links) —
 # for manual runs and CI.
+# Started by another shell (zsh, sh)? These scripts use bash-only expansions
+# (e.g. ${VAR:+-flag "$VAR"} word-splitting) — re-exec under bash, never degrade.
+[ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
 set -u
 
 KIT_DIR="$(cd "$(dirname "$0")" && pwd)"
