@@ -358,6 +358,7 @@ run bash "$KITREL/kernel/rails-index.sh"
 commit_all "clear fixture"
 run env ACME_DEV=a bash bin/pm-preflight.sh; strip
 { [ "$RC" = 0 ] && has 'CLEAR' "$OUTT"; }; check 1.6 "exit 0 (CLEAR) is reachable on a clean, fully-measured state (rc=$RC)" $?
+{ has 'info *ownership.*NOT measured for this build' "$OUTT" && has 'info *rails.*NOT measured for this build' "$OUTT" && lacks 'ok   ownership' "$OUTT" && lacks 'ok   rails' "$OUTT"; }; check amb-b "no --paths and a clean tree: ownership and rails are reported NOT measured, never ok" $?
 
 ###############################################################################
 # A2 — slug drift consumes PF_DRIFT_SLUG_RE (default: any [a-z] initial)
@@ -584,6 +585,29 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths src/billing.php; 
 { lacks 'STOP ownership' "$OUTT"; }; check claim-exempt "another dev's claim over an always-checked path does not STOP an unrelated build (rc=$RC)" $?
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths claude-brain/other.md; strip
 { [ "$RC" = 2 ] && has 'STOP ownership' "$OUTT"; }; check claim-exempt "the same claim still STOPs a build that really touches the surface (rc=$RC)" $?
+
+###############################################################################
+# (b) — a STOP arising only from an always-checked path is ambient: WARN, labelled
+###############################################################################
+mk_proj pcc remote
+prof_set PF_ALWAYS_PATHS '"claude-brain/FROZEN.md"'
+printf 'own a logic src/*\nfrozen * fiscal claude-brain/FROZEN.md\n' > claude-brain/OWNERSHIP.map; mkdir -p src
+printf '# state\topened\tdev\tslug\tglobs\tnote\tsession\n' > claude-brain/CLAIMS.tsv
+printf '# frozen\n' > claude-brain/FROZEN.md
+printf -- '- ⛔ never edit `claude-brain/FROZEN.md` by hand\n' >> "$INDEX"
+run bash "$KITREL/kernel/rails-index.sh"
+commit_all "ambient fixture"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths src/billing.php; strip
+{ lacks 'STOP' "$OUTT" && has 'WARN ownership.*ambient (always-checked path)' "$OUTT" && has 'WARN rails.*ambient (always-checked path)' "$OUTT"; }; check amb-b "frozen + STOP-rail always-checked path, clean build: WARN labelled ambient, no STOP (rc=$RC)" $?
+{ [ "$RC" = 1 ]; }; check amb-b "the run exits 1, not 2 (rc=$RC)" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ lacks 'STOP' "$OUTT" && has 'WARN ownership.*ambient' "$OUTT"; }; check amb-b "no --paths, clean tree: still ambient WARN, never STOP (rc=$RC)" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths claude-brain/FROZEN.md; strip
+{ [ "$RC" = 2 ] && has 'STOP ownership' "$OUTT" && has 'STOP rails' "$OUTT" && lacks 'ambient' "$OUTT"; }; check amb-b "the caller passing the same path itself: real STOPs (rc=$RC)" $?
+echo edit >> claude-brain/FROZEN.md
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ [ "$RC" = 2 ] && has 'STOP ownership' "$OUTT" && has 'STOP rails' "$OUTT"; }; check amb-b "the same path DIRTY in the worktree is the build's own: real STOPs (rc=$RC)" $?
+git checkout -q -- claude-brain/FROZEN.md
 
 ###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"

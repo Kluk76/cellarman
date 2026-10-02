@@ -152,26 +152,25 @@ export ARB_CLOSED_RE
 DRIFT_SLUG_SED="${PF_DRIFT_SLUG_RE:-}"
 [ -n "$DRIFT_SLUG_SED" ] || DRIFT_SLUG_SED='s/^[0-9]\{12\}_[a-z]_//; s/[-_].*$//'
 
-# ── governance population — appended to PATHS on EVERY run, not opt-in per call ─
+# ── governance population — judged on EVERY run, not opt-in per call ───────────
 # A caller's --paths names the build's OWN files; it has no reason to also name
 # the kit's governance surface (the ownership map, the claims ledger, the handoff
-# register) — yet every phase below that reads PATHS (P5 ownership, the shared-
-# tools check, P8 artefact-keyed rails) computes its verdict ONLY over what it
-# was given. An omitted governance path is not a partial measurement, it is a
-# DIFFERENT, weaker population: measured on the origin project, same build, same
-# worktree, verdict STOP vs WARN with the only delta being whether the ownership
-# map was IN --paths that run. PF_ALWAYS_PATHS closes that gap unconditionally so
-# no caller has to remember to pass it. Default empty ⇒ zero behavior change.
-# Dedup against caller-passed PATHS so an explicitly-passed governance path never
-# appears twice (harmless downstream, but a clean population is easier to audit).
+# register) — yet every phase below that reads the touched population (P5
+# ownership, the shared-tools check, P8 artefact-keyed rails) computes its
+# verdict ONLY over what it was given. An omitted governance path is not a
+# partial measurement, it is a DIFFERENT, weaker population: measured on the
+# origin project, same build, same worktree, verdict STOP vs WARN with the only
+# delta being whether the ownership map was IN --paths that run. PF_ALWAYS_PATHS
+# closes that gap unconditionally so no caller has to remember to pass it.
+# Default empty => no always-checked path.
+# But they are AMBIENT, not the build: a STOP that comes ONLY from one of them
+# (and not from a path the caller passed or a dirty file) is reported as a WARN
+# labelled "ambient (always-checked path)" — see _load_touch and P5/P8.
+ALWAYS_ARR=()
 if [ -n "$ALWAYS_PATHS" ]; then
-  for AP in $ALWAYS_PATHS; do
-    FOUND=0
-    for EP in ${PATHS[@]+"${PATHS[@]}"}; do
-      [ "$EP" = "$AP" ] && FOUND=1 && break
-    done
-    [ "$FOUND" = 0 ] && PATHS[${#PATHS[@]}]="$AP"
-  done
+  set -f
+  for AP in $ALWAYS_PATHS; do ALWAYS_ARR[${#ALWAYS_ARR[@]}]="$AP"; done
+  set +f
 fi
 
 if [ -z "$UPSTREAM" ]; then
@@ -203,19 +202,32 @@ _dirty_paths() {
       print substr($0, 4) }'
 }
 
-# The touched population as an ARRAY (names may contain spaces): the caller's
-# --paths (plus always-checked paths), else whatever git sees as changed.
-TOUCH_ARR=()
+# The touched population, as ARRAYS (names may contain spaces):
+#   BUILD_ARR   — this build's own paths: the caller's --paths, else whatever git
+#                 sees as changed (a dirty always-checked path is a dirty file,
+#                 so it is BUILD, not ambient);
+#   AMBIENT_ARR — the always-checked paths (PF_ALWAYS_PATHS) not already in BUILD;
+#   TOUCH_ARR   — both, BUILD first. This is what the verdicts are computed over.
+BUILD_ARR=(); AMBIENT_ARR=(); TOUCH_ARR=()
 _load_touch() {
-  local p
-  TOUCH_ARR=()
+  local p a found
+  BUILD_ARR=(); AMBIENT_ARR=(); TOUCH_ARR=()
   if [ ${#PATHS[@]} -gt 0 ]; then
-    TOUCH_ARR=("${PATHS[@]}")
+    for p in "${PATHS[@]}"; do BUILD_ARR[${#BUILD_ARR[@]}]="$p"; done
   else
     while IFS= read -r p; do
-      [ -n "$p" ] && TOUCH_ARR[${#TOUCH_ARR[@]}]="$p"
+      [ -n "$p" ] && BUILD_ARR[${#BUILD_ARR[@]}]="$p"
     done < <(_dirty_paths)
   fi
+  for a in ${ALWAYS_ARR[@]+"${ALWAYS_ARR[@]}"}; do
+    found=0
+    for p in ${BUILD_ARR[@]+"${BUILD_ARR[@]}"}; do
+      [ "$a" = "$p" ] && found=1 && break
+    done
+    [ "$found" = 0 ] && AMBIENT_ARR[${#AMBIENT_ARR[@]}]="$a"
+  done
+  for p in ${BUILD_ARR[@]+"${BUILD_ARR[@]}"}; do TOUCH_ARR[${#TOUCH_ARR[@]}]="$p"; done
+  for p in ${AMBIENT_ARR[@]+"${AMBIENT_ARR[@]}"}; do TOUCH_ARR[${#TOUCH_ARR[@]}]="$p"; done
 }
 
 RC=0
@@ -232,6 +244,10 @@ warn() { WARN_N=$((WARN_N+1)); [ "$RC" -lt 1 ] && RC=1
          [ "$DO_JSON" = 1 ] || printf '  \033[33mWARN\033[0m %-22s %s\n' "$1" "$2"; _row warn "$1" "$2"; }
 stop() { STOP_N=$((STOP_N+1)); RC=2
          [ "$DO_JSON" = 1 ] || printf '  \033[31mSTOP\033[0m %-22s %s\n' "$1" "$2"; _row stop "$1" "$2"; }
+# info: a line that is neither a pass nor a problem — used to say a phase did NOT
+# measure this build. It never touches the exit code (so CLEAR stays reachable)
+# and it is never printed as "ok".
+info() { [ "$DO_JSON" = 1 ] || printf '  \033[36minfo\033[0m %-22s %s\n' "$1" "$2"; _row info "$1" "$2"; }
 sec()  { [ "$DO_JSON" = 1 ] || printf '\n\033[1m%s\033[0m\n' "$1"; }
 
 [ "$DO_JSON" = 1 ] || printf '\033[1mpm-preflight\033[0m  %s  @ %s\n' "$REPO_ROOT" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -536,12 +552,12 @@ fi
 
 # ── P5. Ownership of the touched paths ─────────────────────────────────────────
 sec "P5 · ownership"
+_load_touch
 if [ ! -f "$OWNERSHIP_MAP" ]; then
   warn ownership "$OWNERSHIP_MAP absent — ownership is prose only${OWNERSHIP_PROSE:+ ($OWNERSHIP_PROSE)}; no machine check possible"
 else
-  _load_touch
   if [ ${#TOUCH_ARR[@]} -eq 0 ]; then
-    ok ownership "no touched paths given and worktree clean"
+    info ownership "NOT measured for this build — no --paths given and the worktree is clean (and no always-checked path is declared)"
   else
     # The lint cannot judge a lane without knowing WHO is acting, and it answers
     # "cannot judge" with the same rc=1 as a shared lane. Say the real cause here,
@@ -550,17 +566,38 @@ else
     if [ -z "$ACTING_DEV" ]; then
       warn ownership "\$$DEV_ENV_VAR is unset — the acting dev is unknown, so lanes CANNOT be judged (ownership NOT measured). Export it, or run ownership-lint.sh --dev <id>."
     else
-    # The always-checked paths are a governance surface every session READS, never
-    # its own build: a claim held over one of them must not STOP an unrelated
-    # build, so they go to the lint as --claim-exempt (the LANE check still
-    # applies to them). Empty PF_ALWAYS_PATHS => the call is exactly as before.
-    "$KIT_DIR/ownership-lint.sh" --map "$OWNERSHIP_MAP" --quiet ${ALWAYS_PATHS:+--claim-exempt "$ALWAYS_PATHS"} "${TOUCH_ARR[@]}"
-    case $? in
-      0) ok ownership "all touched paths are within the acting dev's lane" ;;
-      1) warn ownership "touched path(s) in a shared, contested or unmapped lane (or a ratified crossing) — run ownership-lint.sh for the list" ;;
-      2) stop ownership "touched path(s) in the OTHER dev's lane or a FROZEN lane — see ownership-lint.sh" ;;
-      *) warn ownership "ownership-lint.sh unavailable or errored" ;;
-    esac
+      # The always-checked paths are a governance surface every session READS,
+      # never its own build: a claim held over one of them must not STOP an
+      # unrelated build, so they go to the lint as --claim-exempt (the LANE check
+      # still applies to them). Empty PF_ALWAYS_PATHS => the call is as before.
+      "$KIT_DIR/ownership-lint.sh" --map "$OWNERSHIP_MAP" --quiet ${ALWAYS_PATHS:+--claim-exempt "$ALWAYS_PATHS"} "${TOUCH_ARR[@]}"
+      LRC=$?
+      # A STOP that arises ONLY from an ambient path is not this build's problem:
+      # re-judge the build's own paths alone, and downgrade if they are not STOP.
+      AMBIENT_ONLY=0
+      if [ "$LRC" = 2 ] && [ ${#AMBIENT_ARR[@]} -gt 0 ]; then
+        if [ ${#BUILD_ARR[@]} -eq 0 ]; then
+          AMBIENT_ONLY=1
+        else
+          "$KIT_DIR/ownership-lint.sh" --map "$OWNERSHIP_MAP" --quiet ${ALWAYS_PATHS:+--claim-exempt "$ALWAYS_PATHS"} "${BUILD_ARR[@]}"
+          BRC=$?
+          [ "$BRC" != 2 ] && AMBIENT_ONLY=1
+        fi
+      fi
+      case $LRC in
+        0) if [ ${#BUILD_ARR[@]} -eq 0 ]; then
+             info ownership "NOT measured for this build — no --paths given and the worktree is clean; only the ${#AMBIENT_ARR[@]} always-checked path(s) were judged (within lane)"
+           else
+             ok ownership "all touched paths are within the acting dev's lane"
+           fi ;;
+        1) warn ownership "touched path(s) in a shared, contested or unmapped lane (or a ratified crossing) — run ownership-lint.sh for the list" ;;
+        2) if [ "$AMBIENT_ONLY" = 1 ]; then
+             warn ownership "ambient (always-checked path): an always-checked path (PF_ALWAYS_PATHS) is in the OTHER dev's lane, a FROZEN lane, or under another claim — not caused by this build's own paths; run ownership-lint.sh on it"
+           else
+             stop ownership "touched path(s) in the OTHER dev's lane or a FROZEN lane — see ownership-lint.sh"
+           fi ;;
+        *) warn ownership "ownership-lint.sh unavailable or errored" ;;
+      esac
     fi
   fi
 fi
@@ -573,7 +610,7 @@ TOUCHNOW=$(_dirty_paths)
 for t in $SHARED_TOOLS; do
   # Whole-line match over a newline-separated list ($TOUCHNOW is one path per
   # line): the old space-padded `case` matched only when exactly one path was dirty.
-  if { printf '%s\n' "$TOUCHNOW"; printf '%s\n' ${PATHS[@]+"${PATHS[@]}"}; } | grep -Fxq -- "$t"; then
+  if { printf '%s\n' "$TOUCHNOW"; printf '%s\n' ${TOUCH_ARR[@]+"${TOUCH_ARR[@]}"}; } | grep -Fxq -- "$t"; then
     warn shared-tool "$t is a SHARED TOOL — only one dev has ever exercised it in his environment. Open a handoff item BEFORE landing (H-<date>-<k|l>-<slug>), and state which OS/host/PHP you tested on."
   fi
 done
@@ -705,34 +742,52 @@ elif [ ! -f "$RAILS_TSV" ]; then
   warn rails "$RAILS_TSV absent — UNMEASURED, not a clean pass. Run kernel/rails-index.sh (ideally with --refresh-graph at least once) before trusting this check."
 else
   _load_touch
-  if [ ${#TOUCH_ARR[@]} -eq 0 ]; then
-    ok rails "no touched path/table given and worktree clean"
-  else
-    : > "$TMP/rails-cand"
-    for P in "${TOUCH_ARR[@]}"; do
-      printf '%s\n' "$P" >> "$TMP/rails-cand"
-      case "$P" in */*) basename "$P" >> "$TMP/rails-cand" ;; esac
-    done
-    sort -u "$TMP/rails-cand" -o "$TMP/rails-cand"
-    HITN=0
-    while IFS= read -r CAND; do
-      [ -z "$CAND" ] && continue
-      awk -F'\t' -v c="$CAND" '$1==c' "$RAILS_TSV" > "$TMP/rails-hit" 2>/dev/null
+  # Candidates (the path and its basename) for the build's own paths and, apart,
+  # for the ambient ones — a candidate named by both counts as the build's.
+  : > "$TMP/rails-cand-b"; : > "$TMP/rails-cand-a"
+  for P in ${BUILD_ARR[@]+"${BUILD_ARR[@]}"}; do
+    printf '%s\n' "$P" >> "$TMP/rails-cand-b"
+    case "$P" in */*) basename "$P" >> "$TMP/rails-cand-b" ;; esac
+  done
+  for P in ${AMBIENT_ARR[@]+"${AMBIENT_ARR[@]}"}; do
+    printf '%s\n' "$P" >> "$TMP/rails-cand-a"
+    case "$P" in */*) basename "$P" >> "$TMP/rails-cand-a" ;; esac
+  done
+  sort -u "$TMP/rails-cand-b" -o "$TMP/rails-cand-b"
+  sort -u "$TMP/rails-cand-a" -o "$TMP/rails-cand-a"
+  comm -13 "$TMP/rails-cand-b" "$TMP/rails-cand-a" > "$TMP/rails-cand-amb"
+
+  # _rails_scan <candidate-file> <ambient 0|1>: print every rail keyed to a
+  # candidate VERBATIM; sets RAIL_HITS. An ambient STOP is a WARN, labelled.
+  _rails_scan() {
+    local lab=""
+    [ "$2" = 1 ] && lab="ambient (always-checked path) — "
+    RAIL_HITS=0
+    while IFS= read -r RCAND; do
+      [ -z "$RCAND" ] && continue
+      awk -F'\t' -v c="$RCAND" '$1==c' "$RAILS_TSV" > "$TMP/rails-hit" 2>/dev/null
       [ -s "$TMP/rails-hit" ] || continue
       while IFS="$(printf '\t')" read -r ART SEV RAIL SRC ORIG; do
         [ -z "$ART" ] && continue
-        HITN=$((HITN + 1))
-        MSG="$ART [$ORIG] ($SRC): $RAIL"
+        RAIL_HITS=$((RAIL_HITS + 1))
+        MSG="$lab$ART [$ORIG] ($SRC): $RAIL"
         case "$SEV" in
-          STOP) stop rails "$MSG" ;;
+          STOP) if [ "$2" = 1 ]; then warn rails "$MSG"; else stop rails "$MSG"; fi ;;
           WARN) warn rails "$MSG" ;;
           *)     ok rails "[$SEV] $MSG" ;;
         esac
       done < "$TMP/rails-hit"
-    done < "$TMP/rails-cand"
-    CAND_N=$(wc -l < "$TMP/rails-cand" | tr -d ' ')
-    [ "$HITN" -eq 0 ] && ok rails "no rail keyed to any of the $CAND_N touched artefact(s)"
+    done < "$1"
+  }
+
+  if [ ${#BUILD_ARR[@]} -eq 0 ]; then
+    info rails "NOT measured for this build — no --paths given and the worktree is clean"
+  else
+    _rails_scan "$TMP/rails-cand-b" 0
+    CAND_N=$(wc -l < "$TMP/rails-cand-b" | tr -d ' ')
+    [ "$RAIL_HITS" -eq 0 ] && ok rails "no rail keyed to any of the $CAND_N touched artefact(s)"
   fi
+  [ -s "$TMP/rails-cand-amb" ] && _rails_scan "$TMP/rails-cand-amb" 1
 fi
 
 # ── verdict ────────────────────────────────────────────────────────────────────
