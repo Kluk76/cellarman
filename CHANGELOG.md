@@ -4,6 +4,33 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/) from 0.2.0 on.
 
+## [0.2.1] - 2026-10-02
+
+Three small script fixes.
+
+### Fixed
+
+- **`rails-index.sh` read no severity behind the ruling badge.** A rail headed
+  with the ruling badge (U+2696 U+FE0F), alone or after the new-rail badge, kept
+  the badge in its prefix, so the severity marker after it was not seen at the
+  head of the line and the rail was indexed as INFO. The badge is now stripped like
+  the other one, so such a rail is indexed as WARN or STOP according to its
+  marker. Rails that were wrongly indexed as INFO therefore become WARN or STOP:
+  the pre-flight can report more warnings and blocking rails than before on an
+  index that uses this badge.
+- **`catalog.sh` harvested only the first line of a wrapped trigger.** The
+  continuation `>` lines under a `> Trigger` line, which do not repeat the word,
+  stayed out of the triggers column and out of `--grep`. The contiguous `>` run
+  under a trigger line is now harvested (a bare `>` is skipped). It ends at the first
+  line that is not a `>` line, after a line that ended its sentence with a final
+  ".", and before a line that opens with a label (an emoji or bold), so a glued
+  build-log or "ratified by" line is not read as trigger text.
+- **`doctor.sh` checks 6 and 7 printed ok when `find` failed.** The topic-file
+  size check and the archive retention check lost the exit status of `find` in a
+  pipe, so a failing `find` looked like "nothing to report". `find` now writes to a
+  temporary file outside any pipe, its exit status is read, and a failure prints a
+  WARN line saying the check is UNMEASURED (with the exit code) instead of ok.
+
 ## [0.2.0] - 2026-10-02
 
 The first release that installs and runs on a project that is not its origin.
