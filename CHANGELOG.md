@@ -60,10 +60,12 @@ Read these before upgrading an existing install.
   `queue-target`; the doctor's snapshot key `CLE-RESOLUTION-LIENS` is
   `LINK-RESOLUTION-KEY`; the fifth rails TSV column says `column:<col>` where it said
   `colonne:<col>`; the catalog no longer harvests "> Declencheur" trigger lines.
-- **The doctor can FAIL on three new things** (so `doctor.sh --strict` can start
+- **The doctor can FAIL on four new things** (so `doctor.sh --strict` can start
   failing on an existing install): a kernel token with no bindings row in the agent
-  file, a leftover `PASTE-KERNEL-HERE` placeholder or no kernel block, and
-  `PM_INDEX` and `PF_PM_INDEX` naming different files. Kernel drift against
+  file, a leftover `PASTE-KERNEL-HERE` placeholder or no kernel block, a
+  `${SESSION_PREFIX}` binding that differs from `PF_SESSION_PREFIX` (every claim
+  would read as another session's), and `PM_INDEX` and `PF_PM_INDEX` naming
+  different files. Kernel drift against
   `PROTOCOL.md` is a WARN.
 - **The pre-flight can warn on two new things**: `memory-fresh` (N code commits since
   the last memory commit; `PF_MEMORY_COMMIT_WARN`, default 10, 0 = off) and

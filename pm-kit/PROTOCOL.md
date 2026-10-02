@@ -216,7 +216,7 @@ the third column replaced by your project's values.
 | `${CATALOG_CMD}` | The command that regenerates and greps the catalog of topic files. | The command path. |
 | `${CLAIMS_FILE}` | The claims file. | Its path, and that it is union-merged. |
 | `${CLAIM_CMD}` | The only writer of claim rows. | The command path. |
-| `${SESSION_PREFIX}` | The prefix of a claim's session field. | The literal prefix (it may be empty), identical to `PF_SESSION_PREFIX` in the profile. |
+| `${SESSION_PREFIX}` | The prefix of a claim's session field. | The literal prefix (it may be empty), identical to `PF_SESSION_PREFIX` in the profile; `doctor.sh` compares them, reading the first backticked value of the cell, or the word `empty` at its start. |
 | `${ARBITRATION_REGISTER}` | The register of open questions between developers. | Its path, and where its header format and closure form are defined. |
 | `${PLAN_DOC}` | The project's plan document, where plan item ids, goals and acceptance criteria live. | Its path, how an item id looks, and whether the file may be read whole or has to be grepped. |
 | `${ESCALATION_POLICY}` | What happens to an overdue open decision. | One sentence. The default is "name the delay; a human decides". |

@@ -15,7 +15,8 @@
 #      the "pm-doctor: WARN/FAIL" lines). --strict: no FAIL-level finding.
 #   1  --strict only: at least one FAIL-level finding (index over the hard
 #      budget, dangling links, an agent file without a kernel or with a kernel
-#      token that has no bindings row, two different index paths, divergent
+#      token that has no bindings row, a session prefix that differs from the
+#      profile's, two different index paths, divergent
 #      register states).
 #   3  DID NOT RUN, in either mode: the conf file was not found, so nothing
 #      was measured. 3 is the kit-wide code for "did not run".
@@ -26,7 +27,8 @@
 #   9-11  git sync of the memory paths, dormancy, dead links between topic files
 #   12    arbitration register: router vs bodies (PF_ARB_FILE)
 #   13    agent file: kernel present, no paste placeholder, tokens vs bindings
-#         rows, kernel identical to PROTOCOL.md
+#         rows, ${SESSION_PREFIX} binding equals PF_SESSION_PREFIX, kernel
+#         identical to PROTOCOL.md
 #   14    hook wiring in settings.json (info only: hooks are optional)
 #   15    rails written outside "- " list items (the rails miner never sees them)
 #   16    PM_INDEX (pm-kit.conf) and PF_PM_INDEX (profile) name the same file
@@ -626,6 +628,34 @@ elif _need "agent file checks (13)" awk grep sort comm cmp mktemp; then
                 warn "bindings row(s) for token(s) the kernel never uses: ${_NOUSE}— stale row, or the kernel text was edited"
             fi
             [ -z "$_NOROW$_NOUSE" ] && ok "kernel tokens and bindings rows agree ($(wc -l < "$_AF_TMP/tok-kernel" | tr -d ' ') tokens)"
+            # (a2) the session prefix bound in the agent file equals the profile's.
+            # A mismatch is functional: the lint derives the current session from the
+            # profile's prefix while the PM is told another one, so every claim row
+            # reads as another session's.
+            _PFX_ROW="$(awk '/^<!-- cellarman kernel: end/{k=1; next} k' "$_AGENT_FILE" | grep -F '| `${SESSION_PREFIX}` |' | head -1)"
+            _PFX_PROF_SET="$(_prof PF_SESSION_PREFIX)"
+            if [ -z "$_PROFILE_FILE" ]; then
+                : # no profile to compare with
+            elif [ -z "$_PFX_ROW" ]; then
+                : # no row: 13a already failed on it
+            else
+                _PFX_CELL="$(printf '%s' "$_PFX_ROW" | sed 's/^| *`[^`]*` *|//')"
+                # The value is the first backticked span of the cell; a cell that BEGINS
+                # with the word "empty" means the empty prefix.
+                _PFX_TRIM="$(printf '%s' "$_PFX_CELL" | sed 's/^[[:space:]]*//')"
+                case "$_PFX_TRIM" in
+                    [Ee]mpty*) _PFX_AGENT=""; _PFX_READ=1 ;;
+                    *'`'*'`'*) _PFX_AGENT="$(printf '%s' "$_PFX_TRIM" | sed 's/^[^`]*`\([^`]*\)`.*/\1/')"; _PFX_READ=1 ;;
+                    *) _PFX_AGENT=""; _PFX_READ=0 ;;
+                esac
+                if [ "$_PFX_READ" = 0 ]; then
+                    warn "session prefix check (13) UNMEASURED: the \${SESSION_PREFIX} binding in $_AGENT_FILE has no backticked value (write the literal prefix in backticks, or the word empty)"
+                elif [ "$_PFX_AGENT" = "$_PFX_PROF_SET" ]; then
+                    ok "\${SESSION_PREFIX} binding equals PF_SESSION_PREFIX ('${_PFX_AGENT}')"
+                else
+                    fail "\${SESSION_PREFIX} is '${_PFX_AGENT}' in $_AGENT_FILE but PF_SESSION_PREFIX is '${_PFX_PROF_SET}' in the profile: every claim row would read as another session's"
+                fi
+            fi
             # (b) kernel drift against PROTOCOL.md
             if [ -f "$KIT_DIR/PROTOCOL.md" ]; then
                 _kernel_block "$KIT_DIR/PROTOCOL.md" > "$_AF_TMP/kernel-ref"

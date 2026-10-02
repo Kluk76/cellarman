@@ -1078,6 +1078,24 @@ while IFS= read -r str; do rows=$((rows+1)); [ "$(grep -cF -- "$str" "$SB/protoc
 cd "$PROJ" 2>/dev/null || true
 
 ###############################################################################
+# 7h — the session prefix bound in the agent file equals the profile's
+###############################################################################
+AGENT=claude-brain/agents/acme-pm.md
+mk_proj pd7h remote
+run bash "$KITREL/doctor.sh" --strict
+{ [ "$RC" = 0 ] && has "SESSION_PREFIX} binding equals PF_SESSION_PREFIX ('acme-')"; }; check 7h "the shipped agent file and profile agree on the prefix (rc=$RC)" $?
+prof_set PF_SESSION_PREFIX '"other-"'
+run bash "$KITREL/doctor.sh" --strict
+{ [ "$RC" = 1 ] && has "FAIL.*SESSION_PREFIX} is 'acme-' in .*PF_SESSION_PREFIX is 'other-'.*another session"; }; check 7h "a different prefix in the profile is a FAIL naming both values (rc=$RC)" $?
+prof_set PF_SESSION_PREFIX '""'
+sed 's/^| `${SESSION_PREFIX}` | .*$/| `${SESSION_PREFIX}` | empty (same value as `PF_SESSION_PREFIX`) |/' "$AGENT" > "$SB/agent.tmp" && cp "$SB/agent.tmp" "$AGENT"; cp "$AGENT" "$HOME/.claude/agents/acme-pm.md"
+run bash "$KITREL/doctor.sh" --strict
+{ [ "$RC" = 0 ] && has "binding equals PF_SESSION_PREFIX ('')"; }; check 7h "an empty prefix on both sides agrees (rc=$RC)" $?
+sed 's/^| `${SESSION_PREFIX}` | .*$/| `${SESSION_PREFIX}` | the usual one |/' "$AGENT" > "$SB/agent.tmp" && cp "$SB/agent.tmp" "$AGENT"; cp "$AGENT" "$HOME/.claude/agents/acme-pm.md"
+run bash "$KITREL/doctor.sh"
+{ has 'WARN.*session prefix check (13) UNMEASURED'; }; check 7h "a binding with no readable value is UNMEASURED, never a pass" $?
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"
