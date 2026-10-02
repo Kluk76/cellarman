@@ -1026,6 +1026,28 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 cd "$PROJ" 2>/dev/null || true
 
 ###############################################################################
+# 13 / CI — the workflow names only suites that exist, and names every suite
+###############################################################################
+cd "$C" || exit 64
+WF=.github/workflows/smoke.yml
+missing=""; for f in $(grep -oE 'tests/[A-Za-z0-9_.-]+\.sh' "$WF" | sort -u); do [ -f "$f" ] || missing="$missing $f"; done
+{ [ -z "$missing" ]; }; check 13 "every tests/*.sh the workflow names exists ($missing)" $?
+unnamed=""; for f in tests/*.sh; do [ "$f" = tests/conf-surface.sh ] && continue; grep -q "$f" "$WF" || unnamed="$unnamed $f"; done
+{ [ -z "$unnamed" ]; }; check 13 "every suite under tests/ is run by the workflow (conf-surface.sh is run by smoke.sh) ($unnamed)" $?
+for j in smoke mawk; do
+  n="$(awk -v j="$j" '/^  [a-z]+:$/{cur=$1} cur==j":" && /tests\/quickstart.sh/{c++} END{print c+0}' "$WF")"
+  { [ "$n" -ge 1 ]; }; check 13 "workflow job '$j' runs tests/quickstart.sh" $?
+done
+# the quickstart test is not decoration: a README whose stated outcome or commands are wrong fails it
+printf '%s\n' "$(sed 's/| the install block: nothing committed, no remote | 0 | 1 | 0 |/| the install block: nothing committed, no remote | 0 | 0 | 0 |/' README.md)" > "$SB/README.wrong-outcome"
+run env QS_README="$SB/README.wrong-outcome" bash tests/quickstart.sh
+{ [ "$RC" = 1 ] && has 'FAIL  pass 1: pre-flight exit as the README states'; }; check 13 "a README that states the wrong exit code fails tests/quickstart.sh (rc=$RC)" $?
+printf '%s\n' "$(sed 's/--name acme --dev a/--name acme/' README.md)" > "$SB/README.wrong-command"
+run env QS_README="$SB/README.wrong-command" bash tests/quickstart.sh
+{ [ "$RC" = 1 ] && has 'FAIL'; }; check 13 "a README whose command block is broken fails tests/quickstart.sh (rc=$RC)" $?
+cd "$PROJ" 2>/dev/null || true
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

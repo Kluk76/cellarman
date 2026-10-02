@@ -27,6 +27,10 @@ jobs:
         run: bash tests/smoke.sh
       - name: Ports suite (sync, ledger, claims)
         run: bash tests/ports.sh
+      - name: Init suite (pm-kit/init.sh)
+        run: bash tests/init.sh
+      - name: Quickstart (the README commands, run literally)
+        run: bash tests/quickstart.sh
 
   mawk:
     name: smoke (ubuntu, mawk, LC_ALL=C)
@@ -47,6 +51,14 @@ jobs:
         env:
           LC_ALL: C
         run: bash tests/ports.sh
+      - name: Init suite under mawk and the C locale
+        env:
+          LC_ALL: C
+        run: bash tests/init.sh
+      - name: Quickstart under mawk and the C locale
+        env:
+          LC_ALL: C
+        run: bash tests/quickstart.sh
 
   shellcheck:
     name: shellcheck (non-blocking)
@@ -59,5 +71,5 @@ jobs:
           shellcheck --version
           shellcheck -x \
             pm-kit/*.sh pm-kit/kernel/*.sh \
-            skeleton/*.sh skeleton/githooks-pre-commit.example \
+            skeleton/*.sh skeleton/hooks/*.sh skeleton/githooks-pre-commit.example \
             tests/*.sh
