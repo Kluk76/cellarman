@@ -1,0 +1,32 @@
+# CLAIMS.tsv — what is IN FLIGHT and who is holding it. Append-only; union-merged
+# (see gitattributes.example).
+#
+# WHY. Two layers already existed: what landed (git) and the standing boundary
+# (OWNERSHIP.map). Neither says "someone is building here right now". Without
+# that, two sessions build the same capability under two names and the merge is
+# clean. Two lines per build — one to open, one to close — keeps the protocol
+# cheap enough to be followed.
+#
+# COLUMNS (TAB-separated; a 7-field row is the current format)
+#   1 status    open | restated | closed | abandoned
+#   2 date      YYYY-MM-DD the row was written
+#   3 dev       the initial from the profile's dev env var (DEV_ENV_VAR)
+#   4 slug      kebab-case, unique enough to grep
+#   5 surfaces  space-separated globs: files, directories, or table:<name>
+#   6 intent    one sentence: what is being built, and which stores it writes
+#   7 session   <PF_SESSION_PREFIX><first 8 chars of the session id>
+#
+# Field 7 exists because a dev initial names a developer, not which of that
+# developer's parallel sessions holds the claim. It is written BY
+# kernel/claim.sh, never by hand; the pre-commit gate refuses a live row
+# (open/restated) without it. Older 6-field rows stay valid: the gate only
+# looks at rows a commit ADDS.
+#
+# A claim's current state is its LAST row for the (dev, slug) pair. To change
+# it, append a new row (restated / closed / abandoned) — never edit one.
+#
+# NEVER add a computed column (age, days-open): a hand-maintained freshness
+# field rots within days. Age is recomputed from field 2.
+# NEVER edit another developer's row. NEVER leave a blank row.
+#
+# Post rows with:  kernel/claim.sh open|restate|close|abandon <slug> --surfaces "<globs>" --intent "<sentence>"

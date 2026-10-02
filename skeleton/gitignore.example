@@ -1,0 +1,25 @@
+# gitignore.example — copy into <repo>/.gitignore (append if one exists).
+#
+# Every path below is DERIVED or PER-MACHINE: the kit regenerates or
+# re-records it, and committing it would put one developer's telemetry and
+# caches into everyone's history. The paths follow pm-kit.conf.example and
+# profiles/example.conf; if you moved a path there, move it here.
+#
+# Not listed because they live inside .git and need no ignore rule:
+#   .git/pm-ledger/        session ledgers written by kernel/session-ledger.sh
+#   .git/pm-sync.lock*     pm-sync's lock (file or directory)
+
+# Per-machine load telemetry (PM_LOAD_LOG, written by load-telemetry.sh,
+# read by the doctor's dormancy check). Per-developer by design.
+claude-brain/agents/.pm-load-log.tsv
+
+# Card catalog (PM_CATALOG, written by catalog.sh; embeds the load telemetry).
+# Default location when PM_CATALOG is unset: pm-catalog.tsv next to the index.
+claude-brain/agents/pm-catalog.tsv
+
+# Artefact-keyed rails index (PF_RAILS_OUTPUT, written by rails-index.sh).
+claude-brain/pm-kit/state/RAILS-BY-ARTEFACT.tsv
+
+# Transitive view-dependency cache (PF_ARTEFACT_GRAPH_CACHE, written by
+# rails-index.sh --refresh-graph).
+claude-brain/pm-kit/state/artefact-graph.tsv

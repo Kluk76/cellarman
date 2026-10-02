@@ -1,0 +1,63 @@
+name: smoke
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Show tool versions
+        run: |
+          bash --version | head -n 1
+          git --version
+          jq --version
+          awk --version 2>&1 | head -n 1 || true
+      - name: Smoke suite
+        run: bash tests/smoke.sh
+      - name: Ports suite (sync, ledger, claims)
+        run: bash tests/ports.sh
+
+  mawk:
+    name: smoke (ubuntu, mawk, LC_ALL=C)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mawk and make it the default awk
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mawk
+          sudo update-alternatives --set awk /usr/bin/mawk
+          awk -W version 2>&1 | head -n 1
+      - name: Smoke suite under mawk and the C locale
+        env:
+          LC_ALL: C
+        run: bash tests/smoke.sh
+      - name: Ports suite under mawk and the C locale
+        env:
+          LC_ALL: C
+        run: bash tests/ports.sh
+
+  shellcheck:
+    name: shellcheck (non-blocking)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          shellcheck -x \
+            pm-kit/*.sh pm-kit/kernel/*.sh \
+            skeleton/*.sh skeleton/githooks-pre-commit.example \
+            tests/*.sh
