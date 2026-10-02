@@ -293,74 +293,90 @@ sec "P2 · migration queue"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/pmpf.XXXXXX")" || exit 64
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
-ls "$MIG_DIR"/*.sql 2>/dev/null | while IFS= read -r f; do basename "$f"; done | sort > "$TMP/disk"
-git ls-tree "$UPSTREAM" "$MIG_DIR/" --name-only 2>/dev/null \
-  | sed 's|.*/||' | grep '\.sql$' | sort > "$TMP/upstream"
+if [ -z "$MIG_DIR" ]; then
+  # No queue declared: measure nothing. (An empty PF_QUEUE_DIR used to be globbed as
+  # "/*.sql" and every phase below printed a green on the filesystem root.)
+  ok mig-upstream "n/a (no queue declared)"
+  ok mig-local "n/a (no queue declared)"
+  ok mig-draft "n/a (no queue declared)"
+  ok mig-vps "n/a (no queue declared)"
+  ONLY_UP=""; ONLY_DK=""
+else
+  ls "$MIG_DIR"/*.sql 2>/dev/null | while IFS= read -r f; do basename "$f"; done | sort > "$TMP/disk"
+  git ls-tree "$UPSTREAM" "$MIG_DIR/" --name-only 2>/dev/null \
+    | sed 's|.*/||' | grep '\.sql$' | sort > "$TMP/upstream"
 
-ONLY_UP=""; ONLY_DK=""
-if [ "$SOLO" = 0 ]; then
-  ONLY_UP=$(comm -13 "$TMP/disk" "$TMP/upstream")
-  ONLY_DK=$(comm -23 "$TMP/disk" "$TMP/upstream")
-fi
-
-if [ "$SOLO" = 1 ]; then
-  ok mig-upstream "n/a (single-clone mode: no shared reference to compare against)"
-elif [ -n "$ONLY_UP" ]; then
-  stop mig-upstream "migration(s) on $UPSTREAM and NOT on your disk — the next deploy by ANYONE arms them:"
-  [ "$DO_JSON" = 1 ] || printf '%s\n' "$ONLY_UP" | sed 's/^/         /'
-  # Whose are they? The initial in the filename is the only reliable attributor:
-  # git blame lies for a queue dir (a staged file rides out in another
-  # session's commit), and md5(local)==md5(shared ref)==md5(deploy target) is
-  # the real proof. The capture regex and the env var it names are BOTH
-  # profile-supplied (PF_QUEUE_AUTHOR_RE / DEV_ENV_VAR) — this kernel does not
-  # know how many devs there are or what their initials look like.
-  if [ "$DO_JSON" != 1 ] && [ -n "${QUEUE_AUTHOR_RE:-}" ]; then
-    printf '%s\n' "$ONLY_UP" | sed -n "s/${QUEUE_AUTHOR_RE}.*/         → authored by ${DEV_ENV_VAR}=\\1/p" | sort -u
+  ONLY_UP=""; ONLY_DK=""
+  if [ "$SOLO" = 0 ]; then
+    ONLY_UP=$(comm -13 "$TMP/disk" "$TMP/upstream")
+    ONLY_DK=$(comm -23 "$TMP/disk" "$TMP/upstream")
   fi
-else
-  ok mig-upstream "no migration on $UPSTREAM missing from disk"
-fi
 
-if [ "$SOLO" = 1 ]; then
-  ok mig-local "n/a (single-clone mode: no shared reference to compare against)"
-elif [ -n "$ONLY_DK" ]; then
-  warn mig-local "migration file(s) on disk and NOT on $UPSTREAM (unpushed, or another session's):"
-  [ "$DO_JSON" = 1 ] || printf '%s\n' "$ONLY_DK" | sed 's/^/         /'
-else
-  ok mig-local "no unpushed migration files"
-fi
-
-# _draft: `next-migration.sh finalize` sweeps the WHOLE directory, so another
-# session's draft gets stamped with your initial and lands untracked by git.
-if [ -d "$DRAFT_DIR" ]; then
-  DN=$(ls "$DRAFT_DIR"/*.sql 2>/dev/null | wc -l | tr -d ' ')
-  if [ "$DN" -gt 0 ]; then
-    warn mig-draft "$DN file(s) in $DRAFT_DIR — 'finalize' sweeps ALL of them; list before running it:"
-    [ "$DO_JSON" = 1 ] || ls "$DRAFT_DIR"/*.sql 2>/dev/null | sed 's/^/         /'
-  else ok mig-draft "_draft/ empty"; fi
-else ok mig-draft "_draft/ absent (nothing staged)"; fi
-
-if [ "$DO_PROBE" = 1 ]; then
-  if VPSLS=$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$SSH_TARGET" \
-        "ls $VPS_PATH/$MIG_DIR/*.sql 2>/dev/null | xargs -n1 basename" 2>/dev/null); then
-    printf '%s\n' "$VPSLS" | sort > "$TMP/vps"
-    UP_NOT_VPS=$(comm -13 "$TMP/vps" "$TMP/upstream")
-    VPS_NOT_UP=$(comm -23 "$TMP/vps" "$TMP/upstream")
-    if [ -n "$UP_NOT_VPS" ]; then
-      warn mig-vps "on $UPSTREAM, not yet on the VPS (a deploy arms them):"
-      [ "$DO_JSON" = 1 ] || printf '%s\n' "$UP_NOT_VPS" | sed 's/^/         /'
+  if [ "$SOLO" = 1 ]; then
+    ok mig-upstream "n/a (single-clone mode: no shared reference to compare against)"
+  elif [ -n "$ONLY_UP" ]; then
+    stop mig-upstream "migration(s) on $UPSTREAM and NOT on your disk — the next deploy by ANYONE arms them:"
+    [ "$DO_JSON" = 1 ] || printf '%s\n' "$ONLY_UP" | sed 's/^/         /'
+    # Whose are they? The initial in the filename is the only reliable attributor:
+    # git blame lies for a queue dir (a staged file rides out in another
+    # session's commit), and md5(local)==md5(shared ref)==md5(deploy target) is
+    # the real proof. The capture regex and the env var it names are BOTH
+    # profile-supplied (PF_QUEUE_AUTHOR_RE / DEV_ENV_VAR) — this kernel does not
+    # know how many devs there are or what their initials look like.
+    if [ "$DO_JSON" != 1 ] && [ -n "${QUEUE_AUTHOR_RE:-}" ]; then
+      printf '%s\n' "$ONLY_UP" | sed -n "s/${QUEUE_AUTHOR_RE}.*/         → authored by ${DEV_ENV_VAR}=\\1/p" | sort -u
     fi
-    if [ -n "$VPS_NOT_UP" ]; then
-      stop mig-vps "on the VPS and NOT on $UPSTREAM — prod has a migration git does not know about:"
-      [ "$DO_JSON" = 1 ] || printf '%s\n' "$VPS_NOT_UP" | sed 's/^/         /'
-    fi
-    [ -z "$UP_NOT_VPS$VPS_NOT_UP" ] && ok mig-vps "VPS == $UPSTREAM for db/migrations/"
   else
-    warn mig-vps "could not reach $SSH_TARGET — VPS side of the three-way diff NOT measured"
+    ok mig-upstream "no migration on $UPSTREAM missing from disk"
   fi
-else
-  warn mig-vps "--probe-db not given: the VPS leg is UNMEASURED ('Pending 0' would be an unproven claim)"
+
+  if [ "$SOLO" = 1 ]; then
+    ok mig-local "n/a (single-clone mode: no shared reference to compare against)"
+  elif [ -n "$ONLY_DK" ]; then
+    warn mig-local "migration file(s) on disk and NOT on $UPSTREAM (unpushed, or another session's):"
+    [ "$DO_JSON" = 1 ] || printf '%s\n' "$ONLY_DK" | sed 's/^/         /'
+  else
+    ok mig-local "no unpushed migration files"
+  fi
+
+  # _draft: `next-migration.sh finalize` sweeps the WHOLE directory, so another
+  # session's draft gets stamped with your initial and lands untracked by git.
+  if [ -d "$DRAFT_DIR" ]; then
+    DN=$(ls "$DRAFT_DIR"/*.sql 2>/dev/null | wc -l | tr -d ' ')
+    if [ "$DN" -gt 0 ]; then
+      warn mig-draft "$DN file(s) in $DRAFT_DIR — 'finalize' sweeps ALL of them; list before running it:"
+      [ "$DO_JSON" = 1 ] || ls "$DRAFT_DIR"/*.sql 2>/dev/null | sed 's/^/         /'
+    else ok mig-draft "_draft/ empty"; fi
+  else ok mig-draft "_draft/ absent (nothing staged)"; fi
+
+  # The target leg: n/a when the project declares no deploy target (a permanent
+  # WARN about something that does not exist is wallpaper); otherwise it stays
+  # UNMEASURED-with-a-WARN until --probe-db is given.
+  if [ -z "$SSH_TARGET" ]; then
+    ok mig-vps "n/a (no deploy target declared)"
+  elif [ "$DO_PROBE" = 1 ]; then
+    if VPSLS=$(ssh -o BatchMode=yes -o ConnectTimeout=15 "$SSH_TARGET" \
+          "ls $VPS_PATH/$MIG_DIR/*.sql 2>/dev/null | xargs -n1 basename" 2>/dev/null); then
+      printf '%s\n' "$VPSLS" | sort > "$TMP/vps"
+      UP_NOT_VPS=$(comm -13 "$TMP/vps" "$TMP/upstream")
+      VPS_NOT_UP=$(comm -23 "$TMP/vps" "$TMP/upstream")
+      if [ -n "$UP_NOT_VPS" ]; then
+        warn mig-vps "on $UPSTREAM, not yet on the VPS (a deploy arms them):"
+        [ "$DO_JSON" = 1 ] || printf '%s\n' "$UP_NOT_VPS" | sed 's/^/         /'
+      fi
+      if [ -n "$VPS_NOT_UP" ]; then
+        stop mig-vps "on the VPS and NOT on $UPSTREAM — prod has a migration git does not know about:"
+        [ "$DO_JSON" = 1 ] || printf '%s\n' "$VPS_NOT_UP" | sed 's/^/         /'
+      fi
+      [ -z "$UP_NOT_VPS$VPS_NOT_UP" ] && ok mig-vps "VPS == $UPSTREAM for db/migrations/"
+    else
+      warn mig-vps "could not reach $SSH_TARGET — VPS side of the three-way diff NOT measured"
+    fi
+  else
+    warn mig-vps "--probe-db not given: the VPS leg is UNMEASURED ('Pending 0' would be an unproven claim)"
+  fi
 fi
+
 
 # ── P3. Global-namespace collision for NEW migrations ──────────────────────────
 # MySQL scopes FK *and* CHECK constraint names to the SCHEMA, not the table. A
@@ -369,71 +385,75 @@ fi
 # left out (see profiles/*.conf §4 for a real-incident instance of this).
 sec "P3 · global namespace (constraint / trigger / event names)"
 CAND=""
-if [ ${#MIGS[@]} -gt 0 ]; then
-  CAND="${MIGS[@]+${MIGS[*]}}"
+if [ -z "$MIG_DIR" ]; then
+  ok namespace "n/a (no queue declared)"
 else
-  # default candidate set: drafts + anything unpushed + anything uncommitted
-  CAND="$(ls "$DRAFT_DIR"/*.sql 2>/dev/null; \
-          printf '%s\n' "$ONLY_DK" | sed "s|^|$MIG_DIR/|" ; \
-          git status --porcelain -- "$MIG_DIR" 2>/dev/null | awk '{print $NF}')"
-fi
-CAND=$(printf '%s\n' $CAND | grep '\.sql$' | sort -u)
+  if [ ${#MIGS[@]} -gt 0 ]; then
+    CAND="${MIGS[@]+${MIGS[*]}}"
+  else
+    # default candidate set: drafts + anything unpushed + anything uncommitted
+    CAND="$([ -n "$DRAFT_DIR" ] && ls "$DRAFT_DIR"/*.sql 2>/dev/null; \
+            printf '%s\n' "$ONLY_DK" | sed "s|^|$MIG_DIR/|" ; \
+            git status --porcelain -- "$MIG_DIR" 2>/dev/null | awk '{print $NF}')"
+  fi
+  CAND=$(printf '%s\n' $CAND | grep '\.sql$' | sort -u)
 
-if [ -z "$CAND" ]; then
-  ok namespace "no new/edited migration to check"
-else
-  # Extract every name this file would CREATE in a schema-global namespace.
-  : > "$TMP/names"
-  for f in $CAND; do
-    [ -f "$f" ] || continue
-    grep -oiE 'CONSTRAINT[[:space:]]+`?[A-Za-z0-9_]+`?'      "$f" | awk '{print $NF}' | tr -d '`' >> "$TMP/names"
-    grep -oiE 'CREATE[[:space:]]+TRIGGER[[:space:]]+`?[A-Za-z0-9_]+`?' "$f" | awk '{print $NF}' | tr -d '`' >> "$TMP/names"
-    grep -oiE 'CREATE[[:space:]]+EVENT[[:space:]]+`?[A-Za-z0-9_]+`?'   "$f" | awk '{print $NF}' | tr -d '`' >> "$TMP/names"
-  done
-  sort -u "$TMP/names" -o "$TMP/names"
-  NN=$(wc -l < "$TMP/names" | tr -d ' ')
+  if [ -z "$CAND" ]; then
+    ok namespace "no new/edited migration to check"
+  else
+    # Extract every name this file would CREATE in a schema-global namespace.
+    : > "$TMP/names"
+    for f in $CAND; do
+      [ -f "$f" ] || continue
+      grep -oiE 'CONSTRAINT[[:space:]]+`?[A-Za-z0-9_]+`?'      "$f" | awk '{print $NF}' | tr -d '`' >> "$TMP/names"
+      grep -oiE 'CREATE[[:space:]]+TRIGGER[[:space:]]+`?[A-Za-z0-9_]+`?' "$f" | awk '{print $NF}' | tr -d '`' >> "$TMP/names"
+      grep -oiE 'CREATE[[:space:]]+EVENT[[:space:]]+`?[A-Za-z0-9_]+`?'   "$f" | awk '{print $NF}' | tr -d '`' >> "$TMP/names"
+    done
+    sort -u "$TMP/names" -o "$TMP/names"
+    NN=$(wc -l < "$TMP/names" | tr -d ' ')
 
-  if [ "$NN" = 0 ]; then
-    ok namespace "candidate migration(s) declare no schema-global name"
-  elif [ "$DO_PROBE" = 1 ] && [ -z "$NS_TAKEN_CMD" ]; then
-    warn namespace "profile defines no namespace probe (PF_NS_TAKEN) — UNMEASURED, falling back to the repo-corpus lower bound"
-    DO_PROBE=0
-  elif [ "$DO_PROBE" = 1 ]; then
-    # AUTHORITATIVE: the entire reach-the-real-schema command is profile-owned
-    # (PF_NS_TAKEN / NS_TAKEN_CMD) — this kernel does not know how the project's
-    # DB is bootstrapped, reached, or authenticated to.
-    if TAKEN=$(eval "$NS_TAKEN_CMD" 2>/dev/null); then
-      printf '%s\n' "$TAKEN" | sort -u > "$TMP/taken"
-      HITS=$(comm -12 "$TMP/names" "$TMP/taken")
+    if [ "$NN" = 0 ]; then
+      ok namespace "candidate migration(s) declare no schema-global name"
+    elif [ "$DO_PROBE" = 1 ] && [ -z "$NS_TAKEN_CMD" ]; then
+      warn namespace "profile defines no namespace probe (PF_NS_TAKEN) — UNMEASURED, falling back to the repo-corpus lower bound"
+      DO_PROBE=0
+    elif [ "$DO_PROBE" = 1 ]; then
+      # AUTHORITATIVE: the entire reach-the-real-schema command is profile-owned
+      # (PF_NS_TAKEN / NS_TAKEN_CMD) — this kernel does not know how the project's
+      # DB is bootstrapped, reached, or authenticated to.
+      if TAKEN=$(eval "$NS_TAKEN_CMD" 2>/dev/null); then
+        printf '%s\n' "$TAKEN" | sort -u > "$TMP/taken"
+        HITS=$(comm -12 "$TMP/names" "$TMP/taken")
+        if [ -n "$HITS" ]; then
+          stop namespace "name(s) ALREADY TAKEN in schema '$DB_SCHEMA' — this migration will fail:"
+          [ "$DO_JSON" = 1 ] || printf '%s\n' "$HITS" | sed 's/^/         /'
+        else
+          ok namespace "$NN declared name(s) verified free against the REAL schema"
+        fi
+      else
+        warn namespace "live probe failed — falling back to the repo-corpus lower bound (see below)"
+        DO_PROBE=0
+      fi
+    fi
+
+    if [ "$DO_PROBE" = 0 ] && [ "$NN" -gt 0 ]; then
+      # OFFLINE LOWER BOUND — explicitly NOT a proof. It greps every constraint name
+      # ever declared in db/migrations/ (excluding the candidate files themselves).
+      # It under-reports: objects created outside migrations, or renamed since, are
+      # invisible. It never over-reports: a hit here is a real prior declaration.
+      : > "$TMP/corpus"
+      for f in "$MIG_DIR"/*.sql; do
+        case " $CAND " in *" $f "*) continue ;; esac
+        grep -oiE 'CONSTRAINT[[:space:]]+`?[A-Za-z0-9_]+`?' "$f" 2>/dev/null | awk '{print $NF}' | tr -d '`' >> "$TMP/corpus"
+      done
+      sort -u "$TMP/corpus" -o "$TMP/corpus"
+      HITS=$(comm -12 "$TMP/names" "$TMP/corpus")
       if [ -n "$HITS" ]; then
-        stop namespace "name(s) ALREADY TAKEN in schema '$DB_SCHEMA' — this migration will fail:"
+        stop namespace "name(s) already declared elsewhere in $MIG_DIR — collision (1826) is near-certain:"
         [ "$DO_JSON" = 1 ] || printf '%s\n' "$HITS" | sed 's/^/         /'
       else
-        ok namespace "$NN declared name(s) verified free against the REAL schema"
+        warn namespace "$NN name(s) clear of the repo corpus — this is a LOWER BOUND, not a proof. Re-run with --probe-db before applying."
       fi
-    else
-      warn namespace "live probe failed — falling back to the repo-corpus lower bound (see below)"
-      DO_PROBE=0
-    fi
-  fi
-
-  if [ "$DO_PROBE" = 0 ] && [ "$NN" -gt 0 ]; then
-    # OFFLINE LOWER BOUND — explicitly NOT a proof. It greps every constraint name
-    # ever declared in db/migrations/ (excluding the candidate files themselves).
-    # It under-reports: objects created outside migrations, or renamed since, are
-    # invisible. It never over-reports: a hit here is a real prior declaration.
-    : > "$TMP/corpus"
-    for f in "$MIG_DIR"/*.sql; do
-      case " $CAND " in *" $f "*) continue ;; esac
-      grep -oiE 'CONSTRAINT[[:space:]]+`?[A-Za-z0-9_]+`?' "$f" 2>/dev/null | awk '{print $NF}' | tr -d '`' >> "$TMP/corpus"
-    done
-    sort -u "$TMP/corpus" -o "$TMP/corpus"
-    HITS=$(comm -12 "$TMP/names" "$TMP/corpus")
-    if [ -n "$HITS" ]; then
-      stop namespace "name(s) already declared elsewhere in $MIG_DIR — collision (1826) is near-certain:"
-      [ "$DO_JSON" = 1 ] || printf '%s\n' "$HITS" | sed 's/^/         /'
-    else
-      warn namespace "$NN name(s) clear of the repo corpus — this is a LOWER BOUND, not a proof. Re-run with --probe-db before applying."
     fi
   fi
 fi
@@ -459,6 +479,8 @@ if [ -n "$CAND" ]; then
     done
   done
   [ "$DRIFT" = 0 ] && ok slug-drift "no slug/table divergence in candidate migrations"
+elif [ -z "$MIG_DIR" ]; then
+  ok slug-drift "n/a (no queue declared)"
 else
   ok slug-drift "n/a"
 fi

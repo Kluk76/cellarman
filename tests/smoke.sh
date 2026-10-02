@@ -21,6 +21,7 @@ C="$(cd "$HERE/.." && pwd)"
 [ -f "$C/pm-kit/doctor.sh" ] || { echo "smoke: no cellarman checkout at $C" >&2; exit 64; }
 
 SB="$(mktemp -d "${TMPDIR:-/tmp}/cellarman-smoke.XXXXXX")" || exit 64
+SB="$(cd "$SB" && pwd)"
 cleanup() { [ "${SMOKE_KEEP:-0}" = 1 ] && echo "smoke: sandbox kept at $SB" || rm -rf "$SB"; }
 trap cleanup EXIT
 
@@ -325,6 +326,36 @@ mk_proj p15b remote
 prof_set PF_REF_NAME '"origin/trunk"'
 run bash bin/pm-preflight.sh --no-fetch; strip
 { [ "$RC" = 1 ] && has 'WARN upstream.*single-clone mode.*does not exist on remote' "$OUTT" && lacks 'STOP' "$OUTT"; }; check 1.5 "a remote without the named branch: WARN, not STOP (rc=$RC)" $?
+
+###############################################################################
+# 1.6 / A16 — queue and target legs are n/a when undeclared; CLEAR is reachable
+###############################################################################
+mk_proj p16 remote
+prof_set PF_QUEUE_DIR '""'; prof_set PF_QUEUE_STAGING '""'; prof_set PF_TARGET_HOST '""'
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'ok   mig-upstream.*n/a (no queue declared)' "$OUTT" && has 'ok   mig-local.*n/a (no queue declared)' "$OUTT" \
+  && has 'ok   mig-draft.*n/a (no queue declared)' "$OUTT" && has 'ok   mig-vps.*n/a (no queue declared)' "$OUTT" \
+  && has 'ok   namespace.*n/a (no queue declared)' "$OUTT" && has 'ok   slug-drift.*n/a (no queue declared)' "$OUTT" \
+  && lacks 'no migration on' "$OUTT" && lacks 'no unpushed migration' "$OUTT"; }; check A16 "empty PF_QUEUE_DIR: every queue phase says n/a and measures nothing" $?
+mk_proj p16b remote
+prof_set PF_TARGET_HOST '""'
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'ok   mig-vps.*n/a (no deploy target declared)' "$OUTT" && lacks 'WARN mig-vps' "$OUTT" && has 'ok   mig-upstream.*no migration on' "$OUTT"; }; check 1.6 "empty PF_TARGET_HOST: the target leg is n/a, the queue is still measured" $?
+mk_proj p16c remote
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'WARN mig-vps.*UNMEASURED' "$OUTT"; }; check 1.6 "a declared target without --probe-db stays an honest WARN" $?
+
+# CLEAR: everything declared is measured and clean
+mk_proj p16d remote
+prof_set PF_QUEUE_DIR '""'; prof_set PF_QUEUE_STAGING '""'; prof_set PF_TARGET_HOST '""'; prof_set PF_ALWAYS_PATHS '""'
+printf 'own a logic src/*\n' > claude-brain/OWNERSHIP.map
+printf '# register\n' > "$MEMDIR/dev-handoff-register.md"
+mkdir -p "$KITREL/state"; printf 'ref_users\tv_users_summary\n' > "$KITREL/state/artefact-graph.tsv"
+printf -- '- 🔴 `ref_users` is read by two views · register: `dev-handoff-register.md`\n' >> "$INDEX"
+run bash "$KITREL/kernel/rails-index.sh"
+commit_all "clear fixture"
+run env ACME_DEV=a bash bin/pm-preflight.sh; strip
+{ [ "$RC" = 0 ] && has 'CLEAR' "$OUTT"; }; check 1.6 "exit 0 (CLEAR) is reachable on a clean, fully-measured state (rc=$RC)" $?
 
 ###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
