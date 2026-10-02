@@ -39,6 +39,34 @@ fi
 # shellcheck disable=SC1090
 . "$CONF"
 
+# ── profile values (closure vocabulary) ─────────────────────────────────────
+# The doctor is configured by pm-kit.conf, but the arbitration closure
+# vocabulary lives in the PROFILE (PF_ARB_CLOSED_RE) because pm-preflight reads
+# it too. The profile is sourced in a SUBSHELL and only that one value is taken:
+# a profile repeating a PM_* name must never override pm-kit.conf here.
+# Profile = $PM_PROFILE (path, or a bare name under pm-kit/profiles/), else the
+# single pm-kit/profiles/*.conf. None found => the default below.
+_PROFILE_FILE=""
+if [ -n "${PM_PROFILE:-}" ] && [ -f "$PM_PROFILE" ]; then
+    _PROFILE_FILE="$PM_PROFILE"
+elif [ -n "${PM_PROFILE:-}" ] && [ -f "$KIT_DIR/profiles/$PM_PROFILE.conf" ]; then
+    _PROFILE_FILE="$KIT_DIR/profiles/$PM_PROFILE.conf"
+elif [ -z "${PM_PROFILE:-}" ] && [ -d "$KIT_DIR/profiles" ]; then
+    _N=$(find "$KIT_DIR/profiles" -maxdepth 1 -name '*.conf' 2>/dev/null | wc -l | tr -d ' ')
+    [ "$_N" = 1 ] && _PROFILE_FILE=$(find "$KIT_DIR/profiles" -maxdepth 1 -name '*.conf')
+fi
+ARB_CLOSED_RE=""
+ARB_ID_RE=""
+if [ -n "$_PROFILE_FILE" ]; then
+    ARB_CLOSED_RE="$( . "$_PROFILE_FILE" >/dev/null 2>&1; printf '%s' "${PF_ARB_CLOSED_RE:-}" )"
+    ARB_ID_RE="$( . "$_PROFILE_FILE" >/dev/null 2>&1; printf '%s' "${PF_ARB_ID_RE:-}" )"
+fi
+[ -n "$ARB_CLOSED_RE" ] || ARB_CLOSED_RE='CLOSED|DONE|RESOLVED|ANSWERED|OBSOLETE'
+# Dates are spelled out, not {8}: mawk 1.3.4 has no interval expressions (the
+# register check below silently matched nothing under it). Same default as pm-preflight.
+[ -n "$ARB_ID_RE" ] || ARB_ID_RE='H-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[a-z]-[a-z0-9-]+'
+export ARB_CLOSED_RE ARB_ID_RE
+
 WARNINGS=0
 FAILS=0
 warn() { echo "pm-doctor: WARN — $*"; WARNINGS=$((WARNINGS+1)); }
@@ -485,17 +513,17 @@ if [ -f "$HR" ] && [ -d "$HD" ]; then
     # FILENAME (⛔ pas par ARGIND, qui est une extension gawk et rendrait la
     # garde muette sous mawk — le cas exact contre lequel elle existe).
     _RC="$(awk -v RFILE="$HR" '
+      BEGIN { idre = ENVIRON["ARB_ID_RE"]; cre = ENVIRON["ARB_CLOSED_RE"] }
       /^### H-20/ {
-        if (!match($0, /H-[0-9]{8}-[a-z]-[a-z0-9-]+/)) next
+        if (!match($0, idre)) next
         id = substr($0, RSTART, RLENGTH)
-        st = ($0 ~ /· *(CLOS|RÉPONDU|CADUQUE)/) ? "clos" : "ouvert"
-        # ⛔ MÊME VOCABULAIRE que P6 (pm-preflight.sh) et que les règles du
-        # routeur — 3 sites, à modifier ensemble. Ici on couvre ce que P6 ne
-        # peut PAS voir : les en-têtes des CORPS.
-        # ⚠️ Aucune apostrophe ASCII dans ce bloc : quotes simples de shell.
+        # SAME closure vocabulary as pm-preflight P6 (profile variable
+        # PF_ARB_CLOSED_RE): here it covers what P6 cannot see, the BODY headers.
+        # No ASCII apostrophe in this block: it lives between shell single quotes.
+        st = ($0 ~ ("· *(" cre ")")) ? "clos" : "ouvert"
         if (st == "ouvert") {
-          if ($0 ~ /· *[^A-Za-z0-9]* *(CLOS|RÉPONDU|CADUQUE)/) f[id]="HORS-GABARIT"
-          else if ($0 ~ /(CLOS|RÉPONDU|CADUQUE)/)              f[id]="SUSPECT"
+          if ($0 ~ ("· *[^A-Za-z0-9]* *(" cre ")")) f[id]="HORS-GABARIT"
+          else if ($0 ~ ("(" cre ")"))              f[id]="SUSPECT"
         }
         if (FILENAME == RFILE) {
           if (id in r && r[id] != st) r[id] = "CONFLIT-INTERNE"; else r[id] = st
@@ -531,7 +559,7 @@ if [ -f "$HR" ] && [ -d "$HD" ]; then
         printf '%s\n' "$_RSC" | sed 's/^ROUTEUR-SANS-CORPS\t/    /' | sed 's/\t.*//'
     fi
     if [ -n "$_FMT" ]; then
-        warn "en-tête(s) HORS VOCABULAIRE de clôture — comptés OUVERTS faute d'être lus (« · CLOS » / « · RÉPONDU » / « · CADUQUE », le mot COLLÉ au « · », ornement APRÈS) :"
+        warn "header(s) OUTSIDE THE CLOSURE VOCABULARY — counted OPEN because they could not be read (' · <WORD>', WORD one of: ${ARB_CLOSED_RE}; the word GLUED to the ' · ', decoration AFTER it):"
         printf '%s\n' "$_FMT" | sed 's/^HORS-VOCABULAIRE\t/    /' | sed 's/\t/  /g'
     fi
     [ -z "$_DIV$_CSR$_RSC$_FMT" ] && ok "routeur ⇄ corps: ${N_ROUTEUR} en-tête(s), états concordants des deux côtés"

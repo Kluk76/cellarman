@@ -144,6 +144,11 @@ fi
 ARB_ID_RE="${PF_ARB_ID_RE:-}"
 [ -n "$ARB_ID_RE" ] || ARB_ID_RE='H-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[a-z]-[a-z0-9-]+'
 export ARB_ID_RE
+# PF_ARB_CLOSED_RE: ERE of closure words accepted right after the " · " separator
+# of a register header. Same default (and same reader contract) in doctor.sh.
+ARB_CLOSED_RE="${PF_ARB_CLOSED_RE:-}"
+[ -n "$ARB_CLOSED_RE" ] || ARB_CLOSED_RE='CLOSED|DONE|RESOLVED|ANSWERED|OBSOLETE'
+export ARB_CLOSED_RE
 DRIFT_SLUG_SED="${PF_DRIFT_SLUG_RE:-}"
 [ -n "$DRIFT_SLUG_SED" ] || DRIFT_SLUG_SED='s/^[0-9]\{12\}_[a-z]_//; s/[-_].*$//'
 
@@ -543,7 +548,7 @@ if [ ! -f "$HANDOFF" ]; then
 else
   TODAY=$(date -u '+%Y%m%d')
   awk -v today="$TODAY" -v warnd="$ARB_WARN_DAYS" -v stopd="$ARB_STOP_DAYS" '
-    BEGIN { idre = ENVIRON["ARB_ID_RE"] }
+    BEGIN { idre = ENVIRON["ARB_ID_RE"]; cre = ENVIRON["ARB_CLOSED_RE"] }
     function g(y,m,d,  a,yy,mm){a=int((14-m)/12);yy=y+4800-a;mm=m+12*a-3;
       return d+int((153*mm+2)/5)+365*yy+int(yy/4)-int(yy/100)+int(yy/400)-32045}
     /^### H-20/ {
@@ -554,28 +559,26 @@ else
         y=substr(ds,1,4)+0; m=substr(ds,5,2)+0; d=substr(ds,7,2)+0
         ty=substr(today,1,4)+0; tm=substr(today,5,2)+0; td=substr(today,7,2)+0
         age=g(ty,tm,td)-g(y,m,d)
-        # ⛔ VOCABULAIRE DE CLÔTURE, DÉCLARÉ : « · CLOS » / « · RÉPONDU » /
-        # « · CADUQUE », le mot COLLÉ au séparateur, tout ornement APRÈS.
-        # 🔴 Même vocabulaire dans pm-kit/doctor.sh §12 (qui lit les CORPS, que
-        # P6 ne lit pas) et dans les règles du routeur — 3 sites, à modifier
-        # ensemble.
-        # ⚠️ Aucune apostrophe ASCII dans ce bloc : il vit entre quotes simples
-        # de shell, une apostrophe la FERME (erreur commise puis mesurée le 18-08).
-        state = (line ~ /· *(CLOS|RÉPONDU|CADUQUE)/) ? "closed" : "open"
-        # ⭐ « je n’ai pas compris » ne doit JAMAIS se lire « c’est ouvert ».
-        # Un item CLOS hors gabarit continue de vieillir et pousse vers une
-        # escalade `tsk_` (mail réel) d’une question déjà réglée — mesuré le
-        # 14-08 : 1 en-tête sur 27, et c’était exactement celui-là.
-        # Deux niveaux, gradués sur la CERTITUDE :
-        #   HORS-GABARIT : « · » puis QUE de la décoration puis le mot
-        #                  (« · ✅ CLOS », « · **CLOS** », « ·  ✅  RÉPONDU »).
-        #                  Quasi-certain : la forme stricte a déjà échoué ici.
-        #   SUSPECT      : mot de clôture ailleurs dans l’en-tête (p.ex. après
-        #                  un tiret au lieu du « · »). Peut être de la prose
-        #                  légitime dans un item ouvert ⇒ signalé, pas affirmé.
+        # CLOSURE VOCABULARY, declared by the profile (PF_ARB_CLOSED_RE, an ERE of
+        # alternatives): the word is GLUED to the " · " separator, decoration only
+        # AFTER it. The same value is read by pm-kit/doctor.sh (which reads the
+        # BODIES this phase does not) — one variable, two readers.
+        # No ASCII apostrophe anywhere in this block: it lives between shell single
+        # quotes and one would close it.
+        state = (line ~ ("· *(" cre ")")) ? "closed" : "open"
+        # An item that could not be READ must never be rendered as one that is
+        # OPEN: a closed item written off-template keeps ageing and pushes toward
+        # an escalation of an already-settled question. Two levels, graded on
+        # CERTAINTY:
+        #   OFF-TEMPLATE : the separator, then ONLY decoration, then the word
+        #                  (" · ✅ DONE", " · **DONE**"). Near-certain: the strict
+        #                  form already failed here.
+        #   SUSPECT      : a closure word elsewhere in the header (e.g. after a
+        #                  dash instead of the separator). May be legitimate
+        #                  prose in an open item, so it is flagged, not asserted.
         if (state=="open") {
-          if (line ~ /· *[^A-Za-z0-9]* *(CLOS|RÉPONDU|CADUQUE)/) badfmt[id]="HORS-GABARIT"
-          else if (line ~ /(CLOS|RÉPONDU|CADUQUE)/)              badfmt[id]="SUSPECT"
+          if (line ~ ("· *[^A-Za-z0-9]* *(" cre ")")) badfmt[id]="OFF-TEMPLATE"
+          else if (line ~ ("(" cre ")"))              badfmt[id]="SUSPECT"
         }
         decl=-1; if (match(line,/· *[0-9]+ j/)) { s=substr(line,RSTART,RLENGTH); gsub(/[^0-9]/,"",s); decl=s+0 }
         if (state=="open") {
@@ -606,7 +609,7 @@ else
     NFMT=$(grep -c '^FMT' "$TMP/arb" 2>/dev/null || true); NFMT=${NFMT:-0}
     if [ "${NFMT:-0}" -gt 0 ]; then
       FMTIDS=$(awk -F"\t" '$1=="FMT"{printf "%s(%s) ", $2, $4}' "$TMP/arb")
-      warn arbitration "$NFMT en-tête(s) HORS VOCABULAIRE, comptés OUVERTS faute d'être lus : $FMTIDS— la clôture s'écrit « · CLOS » / « · RÉPONDU » / « · CADUQUE », le mot COLLÉ au « · », tout ornement APRÈS. HORS-GABARIT = ornement entre le « · » et le mot (quasi-certain) ; SUSPECT = mot de clôture ailleurs dans l'en-tête (peut être de la prose légitime)."
+      warn arbitration "$NFMT header(s) OUTSIDE THE CLOSURE VOCABULARY, counted OPEN because they could not be read: $FMTIDS— closure is written ' · <WORD>' with the word GLUED to the ' · ' separator and any decoration AFTER it; <WORD> is one of: $ARB_CLOSED_RE (profile variable PF_ARB_CLOSED_RE). OFF-TEMPLATE = decoration between the separator and the word (near-certain); SUSPECT = a closure word elsewhere in the header (may be legitimate prose)."
     fi
     [ "$NSTALE" -gt 0 ] && warn arbitration "$NSTALE item(s) carry a STALE declared age — the '· N j' field is decoration; delete it or generate it"
     [ "$NSTOP" -gt 0 ] && warn arbitration "$NSTOP item(s) need a human tsk_ escalation — ⛔ the PM must NOT create it (real mail, prod write)"

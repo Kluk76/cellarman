@@ -431,6 +431,32 @@ if command -v mawk >/dev/null 2>&1; then
 else skip A1 "mawk not installed (awk-flavour case)"; fi
 
 ###############################################################################
+# A15 — one closure vocabulary (PF_ARB_CLOSED_RE), read by preflight AND doctor
+###############################################################################
+mk_proj pa15 remote
+HR="$MEMDIR/dev-handoff-register.md"; HD="$MEMDIR/dev-handoff-register"; mkdir -p "$HD"
+printf '# register\n\n### H-20260101-a-open-thing · waiting on a reply\n### H-20260101-a-done-thing · DONE\n### H-20260101-a-res-thing · RESOLVED 2026-01-03\n### H-20260101-a-closed-thing · CLOSED\n### H-20260101-a-ans-thing · ANSWERED\n### H-20260101-a-obs-thing · OBSOLETE\n### H-20260101-a-deco-thing · ✅ DONE\n### H-20260101-a-sus-thing - DONE somewhere\n' > "$HR"
+printf '# bodies\n\n### H-20260101-a-open-thing · waiting on a reply\n### H-20260101-a-done-thing · DONE\n### H-20260101-a-res-thing · RESOLVED 2026-01-03\n### H-20260101-a-closed-thing · CLOSED\n### H-20260101-a-ans-thing · ANSWERED\n### H-20260101-a-obs-thing · OBSOLETE\n### H-20260101-a-deco-thing · ✅ DONE\n### H-20260101-a-sus-thing - DONE somewhere\n' > "$HD/open.md"
+printf '\nregister: dev-handoff-register.md dev-handoff-register/open.md\n' >> "$INDEX"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'arbitration.*a-open-thing' "$OUTT" && lacks 'arbitration.*a-done-thing — [0-9]* d open' "$OUTT" && lacks 'arbitration.*a-res-thing — [0-9]* d open' "$OUTT" \
+  && lacks 'arbitration.*a-closed-thing — [0-9]* d open' "$OUTT" && lacks 'arbitration.*a-ans-thing — [0-9]* d open' "$OUTT" && lacks 'arbitration.*a-obs-thing — [0-9]* d open' "$OUTT"; }; check A15 "DONE / RESOLVED / CLOSED / ANSWERED / OBSOLETE items are closed in preflight" $?
+{ has 'a-deco-thing(OFF-TEMPLATE)' "$OUTT" && has 'a-sus-thing(SUSPECT)' "$OUTT"; }; check A15 "decorated and off-separator closures are flagged, not silently counted" $?
+run bash "$KITREL/doctor.sh"
+{ has 'a-deco-thing' && has 'a-sus-thing' && lacks 'DIVERGENT\|a-done-thing'; }; check A15 "doctor section 12 reads the same vocabulary (no divergence on DONE)" $?
+prof_set PF_ARB_CLOSED_RE "'FINI|BOUCLE'"
+printf '### H-20260101-a-fini-thing · FINI\n' >> "$HR"; printf '### H-20260101-a-fini-thing · FINI\n' >> "$HD/open.md"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ lacks 'arbitration.*a-fini-thing — [0-9]* d open' "$OUTT" && has 'arbitration.*a-done-thing — [0-9]* d open' "$OUTT"; }; check A15 "a profile-supplied vocabulary replaces the default" $?
+if command -v mawk >/dev/null 2>&1; then
+  mkdir -p "$SB/awkshim-a15"; ln -sf "$(command -v mawk)" "$SB/awkshim-a15/awk"
+  run env PATH="$SB/awkshim-a15:$PATH" ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+  { lacks 'arbitration.*a-fini-thing — [0-9]* d open' "$OUTT" && has 'arbitration.*a-done-thing — [0-9]* d open' "$OUTT"; }; check A15 "same verdicts under mawk" $?
+  LC_ALL=C run bash bin/pm-preflight.sh --no-fetch; strip
+  { lacks 'arbitration.*a-fini-thing — [0-9]* d open' "$OUTT" && has 'arbitration.*a-done-thing — [0-9]* d open' "$OUTT"; }; check A15 "same verdicts under LC_ALL=C" $?
+else skip A15 "mawk not installed (awk-flavour case)"; fi
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"
