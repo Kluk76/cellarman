@@ -22,6 +22,11 @@
 #       union merge carries it forward forever. Only emptiness is refused, not
 #       an unexpected field count, so a future column needs no lint change.
 #
+#   (4) BLOCKING — an added live row whose 7th field is present but not in the
+#       form claim.sh writes: PF_SESSION_PREFIX followed by exactly 8
+#       characters (the first 8 of the session id). A hand-typed full session id
+#       reads as "another session" to ownership-lint and blocks its own author.
+#
 # NEVER DEDUPLICATES. The file is append-only; nobody's row is removed by a
 # lint. It names both colliding rows and a human decides.
 #
@@ -53,6 +58,7 @@ trap cleanup EXIT INT TERM
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/lint-claims-session.XXXXXX")" || { echo "lint-claims-session: cannot create a temp dir" >&2; exit 3; }
 
 LIVE_STATES="open restated"
+SESSION_PREFIX_G=""
 
 # ── duty (1): live row without a session ─────────────────────────────────────
 # $1 = file of candidate rows. Prints offenders, exits 1 iff any.
@@ -62,6 +68,21 @@ _claims_check_missing_session() {
     $0 ~ /^#/ { next }
     NF < 4    { next }
     ($1 in isl) { if (NF < 7 || $7 == "") { print; bad = 1 } }
+    END { exit (bad ? 1 : 0) }
+  ' "$1"
+}
+
+# ── duty (4): the session field has the canonical form ───────────────────────
+# $1 = file of candidate rows. A live row whose 7th field is non-empty but is not
+# <prefix> + 8 characters. (An empty or absent field is duty 1's business.)
+_claims_check_session_form() {
+  awk -F'\t' -v live="$LIVE_STATES" -v pfx="$SESSION_PREFIX_G" '
+    BEGIN { n = split(live, arr, " "); for (i = 1; i <= n; i++) isl[arr[i]] = 1; pl = length(pfx) }
+    $0 ~ /^#/ { next }
+    NF < 7    { next }
+    ($1 in isl) && $7 != "" {
+      if (substr($7, 1, pl) != pfx || length($7) != pl + 8) { print; bad = 1 }
+    }
     END { exit (bad ? 1 : 0) }
   ' "$1"
 }
@@ -151,6 +172,13 @@ if [ "${1:-}" = "--self-test" ]; then
   row restated 2026-01-01 a one "" > "$T/d1-restated-bad"
   printf '# a comment line\n' > "$T/d1-comment"
 
+  # duty 4 (prefix "sess-" for the self-test)
+  SESSION_PREFIX_G="sess-"
+  row open 2026-01-01 a one sess-abcd1234 > "$T/d4-good"
+  row open 2026-01-01 a one abcd1234-0000-4000-8000-000000000000 > "$T/d4-fullid-bad"
+  row restated 2026-01-01 a one sess-abcd12 > "$T/d4-short-bad"
+  row closed 2026-01-01 a one whatever > "$T/d4-closed"
+
   # duty 3
   printf 'open\t2026-01-01\ta\tone\ts\ti\tsess-1\n\n' > "$T/d3-bad"
   printf 'open\t2026-01-01\ta\tone\ts\ti\tsess-1\n' > "$T/d3-good"
@@ -177,6 +205,10 @@ if [ "${1:-}" = "--self-test" ]; then
   add "duty1 closed row without session (tolerated)"            0 "$(chk _claims_check_missing_session "$T/d1-closed")"
   add "duty1 restated row, empty session (refuse)"              1 "$(chk _claims_check_missing_session "$T/d1-restated-bad")"
   add "duty1 comment line (skipped)"                            0 "$(chk _claims_check_missing_session "$T/d1-comment")"
+  add "duty4 canonical prefix+8 session (accept)"               0 "$(chk _claims_check_session_form "$T/d4-good")"
+  add "duty4 full session id typed by hand (refuse)"            1 "$(chk _claims_check_session_form "$T/d4-fullid-bad")"
+  add "duty4 prefix + 6 characters (refuse)"                    1 "$(chk _claims_check_session_form "$T/d4-short-bad")"
+  add "duty4 closed row is not held to the form (tolerated)"    0 "$(chk _claims_check_session_form "$T/d4-closed")"
   add "duty3 blank row (refuse)"                                1 "$(chk _claims_check_blank_lines "$T/d3-bad")"
   add "duty3 normal row (accept)"                               0 "$(chk _claims_check_blank_lines "$T/d3-good")"
   add "duty3 whitespace-only row of TABs (refuse)"              1 "$(chk _claims_check_blank_lines "$T/d3-tabs-bad")"
@@ -231,6 +263,7 @@ if pm_find_profile "$CONF_ARG"; then
   . "$CONF" || { echo "lint-claims-session: NOT MEASURED — cannot source $CONF" >&2; exit 3; }
   [ -n "$CLAIMS_REL" ] || CLAIMS_REL="${PF_CLAIMS_FILE:-}"
   LIVE_STATES="${PF_CLAIM_LIVE_STATES:-$LIVE_STATES}"
+  SESSION_PREFIX_G="${PF_SESSION_PREFIX:-}"
 fi
 if [ -z "$CLAIMS_REL" ]; then
   echo "lint-claims-session: NOT MEASURED — no claims path (set PF_CLAIMS_FILE in the profile, or pass --claims)" >&2
@@ -274,6 +307,18 @@ if [ "$miss_rc" -ne 0 ]; then
   printf '%s\n' "$miss_out" | sed 's/^/  /'
   echo "  A live row without a session recreates the defect that field exists to close."
   echo "  TO DO: post the row with kernel/claim.sh, never by hand."
+fi
+
+form_out="$(_claims_check_session_form "$added")"
+form_rc=$?
+if [ "$form_rc" -ne 0 ]; then
+  fail=1
+  echo
+  echo "lint-claims-session: REFUSED — added live row(s) whose session field is not in the canonical form:"
+  printf '%s\n' "$form_out" | sed 's/^/  /'
+  echo "  Expected: '${SESSION_PREFIX_G}' followed by the first 8 characters of the session id (what claim.sh writes)."
+  echo "  A hand-typed full id reads as another session to ownership-lint and blocks its own author."
+  echo "  TO DO: post the row with kernel/claim.sh."
 fi
 
 blank_out="$(_claims_check_blank_lines "$added")"

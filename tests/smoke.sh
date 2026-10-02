@@ -526,7 +526,7 @@ run bash $LINT --dev a --claim-exempt "$GOV" $GOV
 { [ "$RC" = 0 ] && has 'claim-exempt' && lacks '⛔'; }; check claim-exempt "cross-dev branch: exempt path is not blocked (rc=$RC)" $?
 run bash $LINT --dev a --claim-exempt "$GOV" claude-brain/other.md
 { [ "$RC" = 2 ] && has "under an OPEN CLAIM by 'b'"; }; check claim-exempt "a NON-exempt path under the same claim still blocks (rc=$RC)" $?
-printf 'open\t%s\ta\tmine\tclaude-brain/*\tnote\ts-aaaaaaaa\n' "$TODAY_ISO" > $CL
+printf 'open\t%s\ta\tmine\tclaude-brain/*\tnote\tacme-aaaaaaaa\n' "$TODAY_ISO" > $CL
 run env CLAUDE_CODE_SESSION_ID=cccccccc-0000-4000-8000-000000000000 bash $LINT --dev a $GOV
 { [ "$RC" = 2 ] && has 'ANOTHER SESSION of the same dev'; }; check claim-exempt "baseline: same dev, other session blocks the governance path (rc=$RC)" $?
 run env CLAUDE_CODE_SESSION_ID=cccccccc-0000-4000-8000-000000000000 bash $LINT --dev a --claim-exempt "$GOV" $GOV
@@ -756,6 +756,47 @@ if command -v mawk >/dev/null 2>&1; then
   run env PATH="$SB/awkshim-a5:$PATH" ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
   { has 'STOP arbitration.*Q-[0-9]*-x-pricing — Which tier names? — 9 d open' "$OUTT"; }; check A5 "same listing under mawk" $?
 else skip A5 "mawk not installed (awk-flavour case)"; fi
+
+###############################################################################
+# A13 — a claim's session field is recognised in any rendering of MY id, or
+#       rejected by name with the expected form
+###############################################################################
+mk_proj pa13 remote
+printf 'own a logic src/*\n' > claude-brain/OWNERSHIP.map
+LINT="$KITREL/kernel/ownership-lint.sh"; CL=claude-brain/CLAIMS.tsv
+SID=abcd1234-0000-4000-8000-000000000000
+printf 'open\t%s\ta\tmine\tsrc/billing*\tn\tacme-abcd1234\n' "$TODAY_ISO" > $CL
+run env CLAUDE_CODE_SESSION_ID=$SID bash $LINT --dev a src/billing.php
+{ [ "$RC" = 0 ] && has "under YOUR open claim 'mine'" && lacks 'canonical'; }; check A13 "the canonical field is mine (rc=$RC)" $?
+printf 'open\t%s\ta\tfullid\tsrc/full*\tn\t%s\n' "$TODAY_ISO" "$SID" > $CL
+run env CLAUDE_CODE_SESSION_ID=$SID bash $LINT --dev a src/full.php
+{ [ "$RC" = 0 ] && has "under YOUR open claim 'fullid'" && has 'not in the canonical form' && has 'acme-abcd1234'; }; check A13 "a hand-typed FULL session id is recognised as mine, and the canonical form is named (rc=$RC)" $?
+printf 'open\t%s\ta\tbare\tsrc/bare*\tn\tabcd1234\n' "$TODAY_ISO" > $CL
+run env CLAUDE_CODE_SESSION_ID=$SID bash $LINT --dev a src/bare.php
+{ [ "$RC" = 0 ] && has "under YOUR open claim 'bare'" && has 'not in the canonical form'; }; check A13 "the 8 characters without the prefix are recognised as mine (rc=$RC)" $?
+printf 'open\t%s\ta\tgarbled\tsrc/garbled*\tn\tsession one\n' "$TODAY_ISO" > $CL
+run env CLAUDE_CODE_SESSION_ID=$SID bash $LINT --dev a src/garbled.php
+{ [ "$RC" = 2 ] && has 'MALFORMED session field' && has "expected 'acme-' followed by the first 8 characters" && lacks 'ANOTHER SESSION'; }; check A13 "a malformed field is rejected by name, with the expected form (rc=$RC)" $?
+printf 'open\t%s\ta\tother\tsrc/other*\tn\tacme-ffffffff\n' "$TODAY_ISO" > $CL
+run env CLAUDE_CODE_SESSION_ID=$SID bash $LINT --dev a src/other.php
+{ [ "$RC" = 2 ] && has 'ANOTHER SESSION' && lacks 'MALFORMED'; }; check A13 "a well-formed field of ANOTHER session is still another session (rc=$RC)" $?
+printf 'open\t%s\ta\tother\tsrc/other*\tn\tffffffff-0000-4000-8000-000000000000\n' "$TODAY_ISO" > $CL
+run env CLAUDE_CODE_SESSION_ID=$SID bash $LINT --dev a src/other.php
+{ [ "$RC" = 2 ] && has 'MALFORMED' && has 'treated as another session'; }; check A13 "another session's FULL id is not mine: rejected as malformed (rc=$RC)" $?
+# the pre-commit gate refuses the hand-typed form at write time
+mk_proj pa13g remote
+printf '# claims\n' > claude-brain/CLAIMS.tsv; commit_all "claims baseline"
+printf 'open\t%s\ta\tfullid\tsrc/full*\tn\t%s\n' "$TODAY_ISO" "$SID" >> claude-brain/CLAIMS.tsv
+git add -- claude-brain/CLAIMS.tsv
+run bash "$KITREL/lint-claims-session.sh"
+{ [ "$RC" = 1 ] && has 'not in the canonical form' && has "Expected: 'acme-'"; }; check A13 "the claims gate refuses a live row whose session is not prefix+8 (rc=$RC)" $?
+git reset -q -- claude-brain/CLAIMS.tsv; git checkout -q -- claude-brain/CLAIMS.tsv
+printf 'open\t%s\ta\tcanon\tsrc/c*\tn\tacme-abcd1234\n' "$TODAY_ISO" >> claude-brain/CLAIMS.tsv
+git add -- claude-brain/CLAIMS.tsv
+run bash "$KITREL/lint-claims-session.sh"
+{ [ "$RC" = 0 ] && has 'OK'; }; check A13 "the claims gate accepts the canonical form (rc=$RC)" $?
+git reset -q -- claude-brain/CLAIMS.tsv; git checkout -q -- claude-brain/CLAIMS.tsv
+{ ! grep -q '^PF_CLAIMS_FORMAT="state' "$C/profiles/example.conf"; }; check A13 "the stale 6-field PF_CLAIMS_FORMAT line is gone from the example profile" $?
 
 ###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"

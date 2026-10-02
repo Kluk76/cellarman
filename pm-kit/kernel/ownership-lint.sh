@@ -168,6 +168,25 @@ eval "_SESS_RAW=\"\${${SESSION_ENV_VAR}:-}\""
 
 say() { [ "$QUIET" = 1 ] || printf '%s\n' "$*"; }
 
+# A claim's session field has ONE canonical form: SESSION_PREFIX followed by the
+# first 8 characters of the session id (what claim.sh writes). Anything else is
+# either a hand-typed rendering of the SAME id (the full id, or the 8 characters
+# without the prefix), which is recognised as mine, or a malformed field, which is
+# rejected by name rather than silently read as "another session".
+_session_field_wellformed() {
+  local f="$1" r
+  case "$f" in "$SESSION_PREFIX"*) r="${f#"$SESSION_PREFIX"}" ;; *) return 1 ;; esac
+  [ ${#r} -eq 8 ]
+}
+_session_field_is_mine() {
+  local f="$1" r
+  [ -n "${_SESS_RAW:-}" ] || return 1
+  case "$f" in "$SESSION_PREFIX"*) r="${f#"$SESSION_PREFIX"}" ;; *) r="$f" ;; esac
+  [ ${#r} -ge 8 ] || return 1
+  case "$_SESS_RAW" in "$r"*) return 0 ;; esac
+  return 1
+}
+
 # ── --refresh : keep the map HONEST by regenerating its evidence from git ──────
 # A hand-written ownership map rots into aspiration. This does not rewrite the
 # LANES (that is a human ruling); it recomputes, per lane, who has actually
@@ -556,6 +575,13 @@ if [ -f "$CLAIMS" ]; then
               bump 1
             elif [ "$CSESSION" = "$CUR_SESSION" ]; then
               say "  ok   $P — under YOUR open claim '$SLUG' (since $OPENED)"
+            elif _session_field_is_mine "$CSESSION"; then
+              # Written by hand: the session id is mine, but not in the form
+              # claim.sh writes. Recognised, and said, so it gets rewritten.
+              say "  ok   $P — under YOUR open claim '$SLUG' (since $OPENED); its session field '$CSESSION' is not in the canonical form '$CUR_SESSION' (claim.sh writes ${SESSION_PREFIX}<first 8 characters of \$$SESSION_ENV_VAR>)"
+            elif ! _session_field_wellformed "$CSESSION"; then
+              say "  ⛔   $P — claim '$SLUG' by dev '$CDEV' (since $OPENED) has a MALFORMED session field '$CSESSION': expected '${SESSION_PREFIX}' followed by the first 8 characters of the session id (what claim.sh writes), e.g. '${SESSION_PREFIX}${_SESS_RAW:-abcd1234}' for the current session. It is not recognisable as this session, so it is treated as another session's; repair the field or ask who holds the claim."
+              bump 2
             else
               say "  ⛔   $P — under an open claim by ANOTHER SESSION of the same dev ('$CSESSION', '$SLUG', since $OPENED) — ask who holds it; never conclude \"that one is mine\"."
               say "       Two sessions of the same dev building the same surface is how a feature ships twice. Talk first."
