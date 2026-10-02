@@ -375,6 +375,27 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 { has 'ok   slug-drift' "$OUTT"; }; check A2 "a custom PF_DRIFT_SLUG_RE is honoured" $?
 
 ###############################################################################
+# A4 / A5 — newline-safe candidate and shared-tool matching
+###############################################################################
+mk_proj pa4 remote
+mkdir -p db/migrations bin src
+printf 'ALTER TABLE a ADD CONSTRAINT fk_base FOREIGN KEY (x) REFERENCES b(id);\n' > db/migrations/202501010000_a_base.sql
+printf '#!/bin/sh\n' > bin/deploy.sh; printf '<?php\n' > src/billing.php
+commit_all "baseline migrations and tools"
+printf 'ALTER TABLE a ADD CONSTRAINT fk_one FOREIGN KEY (x) REFERENCES b(id);\n' > db/migrations/202610020900_a_one.sql
+printf 'ALTER TABLE a ADD CONSTRAINT fk_two FOREIGN KEY (y) REFERENCES b(id);\n' > db/migrations/202610020901_a_two.sql
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ lacks 'STOP namespace' "$OUTT" && has 'WARN namespace.*2 name(s) clear of the repo corpus' "$OUTT"; }; check A4 "two new migrations with distinct constraints raise no false STOP (rc=$RC)" $?
+printf 'ALTER TABLE a ADD CONSTRAINT fk_base FOREIGN KEY (z) REFERENCES b(id);\n' > db/migrations/202610020902_a_three.sql
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ [ "$RC" = 2 ] && has 'STOP namespace.*already declared elsewhere' "$OUTT" && has 'fk_base' "$OUTT"; }; check A4 "a name already declared in a committed migration still STOPs" $?
+rm -f db/migrations/202610020900_a_one.sql db/migrations/202610020901_a_two.sql db/migrations/202610020902_a_three.sql
+echo x >> bin/deploy.sh; echo y >> src/billing.php
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'WARN shared-tool.*bin/deploy.sh' "$OUTT"; }; check A5 "a dirty shared tool is reported when another path is dirty too" $?
+git checkout -q -- bin/deploy.sh src/billing.php
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

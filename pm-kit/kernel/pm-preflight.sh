@@ -448,7 +448,10 @@ else
       # invisible. It never over-reports: a hit here is a real prior declaration.
       : > "$TMP/corpus"
       for f in "$MIG_DIR"/*.sql; do
-        case " $CAND " in *" $f "*) continue ;; esac
+        # $CAND is NEWLINE-separated: a `case " $CAND " in *" $f "*)` test only ever
+      # matched a single-candidate list, so with two or more every candidate
+      # stayed in the corpus and collided with itself.
+      if printf '%s\n' "$CAND" | grep -Fxq -- "$f"; then continue; fi
         grep -oiE 'CONSTRAINT[[:space:]]+`?[A-Za-z0-9_]+`?' "$f" 2>/dev/null | awk '{print $NF}' | tr -d '`' >> "$TMP/corpus"
       done
       sort -u "$TMP/corpus" -o "$TMP/corpus"
@@ -516,9 +519,11 @@ fi
 # handoff event, not a commit.
 TOUCHNOW=$(git status --porcelain 2>/dev/null | awk '{print $NF}')
 for t in $SHARED_TOOLS; do
-  case " $TOUCHNOW ${PATHS[@]+${PATHS[*]}} " in
-    *" $t "*) warn shared-tool "$t is a SHARED TOOL — only one dev has ever exercised it in his environment. Open a handoff item BEFORE landing (H-<date>-<k|l>-<slug>), and state which OS/host/PHP you tested on." ;;
-  esac
+  # Whole-line match over a newline-separated list ($TOUCHNOW is one path per
+  # line): the old space-padded `case` matched only when exactly one path was dirty.
+  if { printf '%s\n' "$TOUCHNOW"; printf '%s\n' ${PATHS[@]+"${PATHS[@]}"}; } | grep -Fxq -- "$t"; then
+    warn shared-tool "$t is a SHARED TOOL — only one dev has ever exercised it in his environment. Open a handoff item BEFORE landing (H-<date>-<k|l>-<slug>), and state which OS/host/PHP you tested on."
+  fi
 done
 
 # ── P6. Arbitration queue — age computed from the ID, never from the column ────
