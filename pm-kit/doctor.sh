@@ -600,7 +600,15 @@ fi
 _AGENT_FILE=""
 if [ -f "${PM_AGENT_CANONICAL:-/nonexistent}" ]; then _AGENT_FILE="$PM_AGENT_CANONICAL"
 elif [ -f "${PM_AGENT_INSTALLED:-/nonexistent}" ]; then _AGENT_FILE="$PM_AGENT_INSTALLED"; fi
-_kernel_block() { awk '/^<!-- cellarman kernel: begin/{k=1} k{print} /^<!-- cellarman kernel: end/{k=0}' "$1"; }
+# The marker lines may carry leading whitespace (an indented paste, an editor that
+# re-indents); they are matched and printed without it, so detection and the
+# byte comparison with PROTOCOL.md both tolerate it. Only the markers are trimmed.
+_kernel_block() {
+    awk '
+      /^[ \t]*<!-- cellarman kernel: begin/ { k = 1; sub(/^[ \t]+/, "") }
+      /^[ \t]*<!-- cellarman kernel: end/   { sub(/^[ \t]+/, ""); if (k) { print; k = 0; next } }
+      k { print }' "$1"
+}
 if [ -z "$_AGENT_FILE" ]; then
     : # check 8 already said the agent definition is not installed
 elif _need "agent file checks (13)" awk grep sort comm cmp mktemp; then
@@ -617,7 +625,7 @@ elif _need "agent file checks (13)" awk grep sort comm cmp mktemp; then
             ok "agent file carries a kernel block, no paste placeholder"
             # (a) tokens vs bindings rows
             grep -oE '\$\{[A-Z_]+\}' "$_AF_TMP/kernel" | sort -u > "$_AF_TMP/tok-kernel"
-            awk '/^<!-- cellarman kernel: end/{k=1; next} k' "$_AGENT_FILE" \
+            awk '/^[ \t]*<!-- cellarman kernel: end/{k=1; next} k' "$_AGENT_FILE" \
                 | grep -oE '^\| `\$\{[A-Z_]+\}`' | grep -oE '\$\{[A-Z_]+\}' | sort -u > "$_AF_TMP/tok-table"
             _NOROW="$(comm -23 "$_AF_TMP/tok-kernel" "$_AF_TMP/tok-table" | tr '\n' ' ')"
             _NOUSE="$(comm -13 "$_AF_TMP/tok-kernel" "$_AF_TMP/tok-table" | tr '\n' ' ')"
@@ -632,7 +640,7 @@ elif _need "agent file checks (13)" awk grep sort comm cmp mktemp; then
             # A mismatch is functional: the lint derives the current session from the
             # profile's prefix while the PM is told another one, so every claim row
             # reads as another session's.
-            _PFX_ROW="$(awk '/^<!-- cellarman kernel: end/{k=1; next} k' "$_AGENT_FILE" | grep -F '| `${SESSION_PREFIX}` |' | head -1)"
+            _PFX_ROW="$(awk '/^[ \t]*<!-- cellarman kernel: end/{k=1; next} k' "$_AGENT_FILE" | grep -F '| `${SESSION_PREFIX}` |' | head -1)"
             _PFX_PROF_SET="$(_prof PF_SESSION_PREFIX)"
             if [ -z "$_PROFILE_FILE" ]; then
                 : # no profile to compare with

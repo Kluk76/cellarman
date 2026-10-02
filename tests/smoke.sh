@@ -1096,6 +1096,36 @@ run bash "$KITREL/doctor.sh"
 { has 'WARN.*session prefix check (13) UNMEASURED'; }; check 7h "a binding with no readable value is UNMEASURED, never a pass" $?
 
 ###############################################################################
+# leftovers — catalog --grep display cuts on a character boundary; the doctor
+#             finds a kernel whose marker lines carry leading whitespace
+###############################################################################
+mk_proj plo remote
+EACC="$(printf '\303\251')"; LONGE=""; for i in $(seq 1 450); do LONGE="$LONGE$EACC"; done
+printf '# Accents\n\n> Trigger: %s needle\n' "$LONGE" > "$MEMDIR/accents.md"
+if command -v iconv >/dev/null 2>&1; then
+  mkdir -p "$SB/awkcg" "$SB/awkcm"
+  command -v gawk >/dev/null 2>&1 && ln -sf "$(command -v gawk)" "$SB/awkcg/awk"
+  command -v mawk >/dev/null 2>&1 && ln -sf "$(command -v mawk)" "$SB/awkcm/awk"
+  for cfg in gawk-C mawk gawk-utf8; do
+    case $cfg in
+      gawk-C)    [ -x "$SB/awkcg/awk" ] || continue; run env PATH="$SB/awkcg:$PATH" LC_ALL=C bash "$KITREL/catalog.sh" --grep needle ;;
+      mawk)      [ -x "$SB/awkcm/awk" ] || continue; run env PATH="$SB/awkcm:$PATH" bash "$KITREL/catalog.sh" --grep needle ;;
+      gawk-utf8) [ -x "$SB/awkcg/awk" ] && [ -n "$UTF8_LOC" ] || continue; run env PATH="$SB/awkcg:$PATH" LC_ALL="$UTF8_LOC" bash "$KITREL/catalog.sh" --grep needle ;;
+    esac
+    iconv -f UTF-8 -t UTF-8 "$OUT" > /dev/null 2>&1; irc=$?
+    { [ "$irc" = 0 ] && has 'accents.md' && has '…'; }; check leftover "catalog --grep display of a long multi-byte trigger is valid UTF-8 ($cfg, iconv rc=$irc)" $?
+  done
+else skip leftover "iconv not installed"; fi
+rm -f "$MEMDIR/accents.md"
+mk_proj pmk remote
+sed 's/^<!-- cellarman kernel: \(begin\|end\) -->$/    <!-- cellarman kernel: \1 -->/' claude-brain/agents/acme-pm.md > "$SB/agent.tmp"
+{ grep -q '^    <!-- cellarman kernel: begin' "$SB/agent.tmp" && grep -q '^    <!-- cellarman kernel: end' "$SB/agent.tmp"; }; check leftover "fixture: both marker lines are indented" $?
+cp "$SB/agent.tmp" claude-brain/agents/acme-pm.md; cp "$SB/agent.tmp" "$HOME/.claude/agents/acme-pm.md"
+git fetch -q origin
+run bash "$KITREL/doctor.sh" --strict
+{ [ "$RC" = 0 ] && has 'agent file carries a kernel block' && has 'kernel tokens and bindings rows agree' && has 'kernel block identical to pm-kit/PROTOCOL.md' && lacks 'no kernel block'; }; check leftover "an agent file whose marker lines are indented still has its kernel found, checked and equal to PROTOCOL.md (rc=$RC)" $?
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

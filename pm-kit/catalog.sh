@@ -130,11 +130,31 @@ case "$MODE" in
         # population. Substring semantics mean short terms over-match
         # ("chart" hits "charter") — anchor when it matters.
         CATALOG_PAT="$PATTERN" awk -F'\t' '
-            BEGIN { pat = tolower(ENVIRON["CATALOG_PAT"]) }
+            # cut_chars: the first n characters, never ending inside a UTF-8 character.
+            # substr counts characters under gawk in a UTF-8 locale but BYTES under mawk
+            # or LC_ALL=C, where a cut at byte n can leave the head of a multi-byte
+            # character (invalid UTF-8 on screen); in byte mode an incomplete trailing
+            # sequence is dropped.
+            function cut_chars(s, n,   cut, len, i, need) {
+                cut = substr(s, 1, n)
+                if (length(ELL) == 1) return cut
+                len = length(cut); i = len
+                while (i > 0 && (substr(cut, i, 1) in CONT)) i--
+                if (i > 0 && (substr(cut, i, 1) in LEAD)) {
+                    need = LEAD[substr(cut, i, 1)]
+                    if (len - i + 1 < need) cut = substr(cut, 1, i - 1)
+                }
+                return cut
+            }
+            BEGIN { pat = tolower(ENVIRON["CATALOG_PAT"]); ELL = "…"
+                    for (b = 128; b < 192; b++) CONT[sprintf("%c", b)] = 1
+                    for (b = 192; b < 224; b++) LEAD[sprintf("%c", b)] = 2
+                    for (b = 224; b < 240; b++) LEAD[sprintf("%c", b)] = 3
+                    for (b = 240; b < 248; b++) LEAD[sprintf("%c", b)] = 4 }
             NR==1 { next }
             tolower($1 FS $6 FS $7) ~ pat {
                 trig = $6
-                if (length(trig) > 400) trig = substr(trig, 1, 400) "…"
+                if (length(trig) > 400) trig = cut_chars(trig, 400) "…"
                 printf "%s\t%sB\tloads:%s last:%s\n\t%s\n\t%s\n", $1, $2, $4, $5, $7, trig }' \
             "$CATALOG"
         ;;

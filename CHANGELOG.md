@@ -177,11 +177,14 @@ Audit references are to the code audit that preceded 0.2.0.
   is honoured, as an ambient warning (A17).
 - rails-index: severity no longer depends on the awk flavour or the locale (A8); an
   unconfigured or edge-less graph cache is UNMEASURED, not "MEASURED" (A7); a rail
-  truncated at `PF_RAILS_TRUNCATE` no longer ends inside a UTF-8 character.
+  truncated at `PF_RAILS_TRUNCATE` (and a trigger line shortened by `catalog.sh --grep`)
+  no longer ends inside a UTF-8 character.
 - Doctor and catalog: no `find -printf`, `md5sum`, `grep -P` or `realpath -q` (B1-B4);
   a missing tool is UNMEASURED, never a passing line; dormancy flags only files older
   than `PM_DORMANT_DAYS` (A14); a missing memory dir is an error; `--grep` with no
   pattern is a usage error, not a hang (A11); every trigger line is harvested.
+- The doctor finds the kernel block in an agent file whose marker lines carry leading
+  whitespace.
 - Scripts started by another shell re-exec under bash (B5); a launcher that names no
   profile; an honest `--conf` message; usage errors on missing option values.
 - The seed index no longer fails the doctor out of the box; the launcher no longer
