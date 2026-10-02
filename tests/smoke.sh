@@ -297,6 +297,24 @@ for tool in pm-preflight rails-index; do
 done
 
 ###############################################################################
+# B7 — core.hooksPath is compared as a path, not as a string
+###############################################################################
+mk_proj pb7 remote
+mkdir -p .githooks && printf '#!/bin/sh\nexit 0\n' > .githooks/pre-commit && chmod +x .githooks/pre-commit
+commit_all "hooks"
+for hp in ".githooks" "./.githooks" ".githooks/" "$PROJ/.githooks"; do
+  git config core.hooksPath "$hp"; case "$hp" in /*) lbl="(absolute path)" ;; *) lbl="'$hp'" ;; esac
+  run bash bin/pm-preflight.sh --no-fetch; strip
+  { has 'ok   hooks' "$OUTT" && lacks 'NO pre-commit gate' "$OUTT"; }; check B7 "core.hooksPath $lbl is recognised as .githooks" $?
+done
+git config core.hooksPath "other-hooks"
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'WARN hooks' "$OUTT"; }; check B7 "a different hooks path still warns" $?
+git config --unset core.hooksPath
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'WARN hooks.*<unset>' "$OUTT"; }; check B7 "an unset hooks path still warns" $?
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

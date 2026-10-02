@@ -249,9 +249,18 @@ fi
 # so flipping it is an operator gesture to announce — not something a tool
 # does on someone's behalf.
 : "${HOOKS_DIR:=${PF_HOOKS_PATH:-.githooks}}"
+# Compare PATHS, not strings: `./.githooks`, `.githooks/` and an absolute path
+# into this repo all name the same directory and must not read as "no gate".
+_norm_path() {
+  local p="$1"
+  case "$p" in "$REPO_ROOT"/*) p="${p#"$REPO_ROOT"/}" ;; esac
+  while :; do case "$p" in ./*) p="${p#./}" ;; *) break ;; esac; done
+  while :; do case "$p" in */) p="${p%/}" ;; *) break ;; esac; done
+  printf '%s' "$p"
+}
 if [ -d "$REPO_ROOT/$HOOKS_DIR" ]; then
   HOOKS_PATH="$(git config --get core.hooksPath 2>/dev/null || true)"
-  if [ "$HOOKS_PATH" != "$HOOKS_DIR" ]; then
+  if [ "$(_norm_path "$HOOKS_PATH")" != "$(_norm_path "$HOOKS_DIR")" ]; then
     warn hooks "core.hooksPath is '${HOOKS_PATH:-<unset>}', not $HOOKS_DIR — this clone commits with NO pre-commit gate. Fix once per clone, and ANNOUNCE it (it covers every worktree): git config core.hooksPath $HOOKS_DIR"
   else
     ok hooks "core.hooksPath=$HOOKS_DIR"
