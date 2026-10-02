@@ -412,6 +412,25 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 { lacks 'STOP memory' "$OUTT"; }; check A6 "restoring the seed index clears the STOP" $?
 
 ###############################################################################
+# A1 — P6 consumes PF_ARB_ID_RE (default: any [a-z] initial), no hardcoded [kl]
+###############################################################################
+mk_proj pa1 remote
+HR="$MEMDIR/dev-handoff-register.md"
+printf '# register\n\n### H-20260101-a-old-question\n\n### H-20260102-k-foreign-initial\n' > "$HR"
+printf '\nregister: dev-handoff-register.md\n' >> "$INDEX"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'arbitration.*H-20260101-a-old-question' "$OUTT" && lacks 'no open handoff items' "$OUTT"; }; check A1 "an item by dev 'a' (profile declares a/b) is seen" $?
+{ lacks 'H-20260102-k-foreign-initial' "$OUTT"; }; check A1 "PF_ARB_ID_RE is consumed: an initial outside [ab] is not read" $?
+prof_set PF_ARB_ID_RE '""'
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'H-20260101-a-old-question' "$OUTT" && has 'H-20260102-k-foreign-initial' "$OUTT"; }; check A1 "without PF_ARB_ID_RE the default accepts any [a-z] initial" $?
+if command -v mawk >/dev/null 2>&1; then
+  mkdir -p "$SB/awkshim-a1"; ln -sf "$(command -v mawk)" "$SB/awkshim-a1/awk"
+  run env PATH="$SB/awkshim-a1:$PATH" ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+  { has 'H-20260101-a-old-question' "$OUTT" && has 'H-20260102-k-foreign-initial' "$OUTT"; }; check A1 "the same register is read under mawk (no {n} intervals)" $?
+else skip A1 "mawk not installed (awk-flavour case)"; fi
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

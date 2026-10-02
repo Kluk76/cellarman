@@ -138,6 +138,12 @@ fi
 # PF_DRIFT_SLUG_RE: despite the name, a SED SCRIPT that reduces a migration's
 # basename (no .sql) to its subject word. Default is author-agnostic: any single
 # lowercase initial, so a project that never set it is not blind to its own devs.
+# PF_ARB_ID_RE: an ERE (read by awk) matching a register item id. The default
+# accepts any lowercase dev initial and spells the date out instead of using
+# {8}: mawk 1.3.4 has no interval expressions and would match nothing.
+ARB_ID_RE="${PF_ARB_ID_RE:-}"
+[ -n "$ARB_ID_RE" ] || ARB_ID_RE='H-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]-[a-z]-[a-z0-9-]+'
+export ARB_ID_RE
 DRIFT_SLUG_SED="${PF_DRIFT_SLUG_RE:-}"
 [ -n "$DRIFT_SLUG_SED" ] || DRIFT_SLUG_SED='s/^[0-9]\{12\}_[a-z]_//; s/[-_].*$//'
 
@@ -537,11 +543,12 @@ if [ ! -f "$HANDOFF" ]; then
 else
   TODAY=$(date -u '+%Y%m%d')
   awk -v today="$TODAY" -v warnd="$ARB_WARN_DAYS" -v stopd="$ARB_STOP_DAYS" '
+    BEGIN { idre = ENVIRON["ARB_ID_RE"] }
     function g(y,m,d,  a,yy,mm){a=int((14-m)/12);yy=y+4800-a;mm=m+12*a-3;
       return d+int((153*mm+2)/5)+365*yy+int(yy/4)-int(yy/100)+int(yy/400)-32045}
     /^### H-20/ {
       line=$0
-      if (match(line,/H-[0-9]{8}-[kl]-[a-z0-9-]+/)) {
+      if (match(line, idre)) {
         id=substr(line,RSTART,RLENGTH)
         ds=substr(id,3,8)
         y=substr(ds,1,4)+0; m=substr(ds,5,2)+0; d=substr(ds,7,2)+0
