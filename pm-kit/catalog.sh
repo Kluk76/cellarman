@@ -35,7 +35,8 @@ PATTERN=""
 CONF=""
 while [ $# -gt 0 ]; do
     case "$1" in
-        --grep)  MODE=grep; PATTERN="${2:-}"; shift 2 ;;
+        --grep)  [ $# -ge 2 ] && [ -n "$2" ] || { echo "pm-catalog: --grep needs a pattern" >&2; exit 64; }
+                 MODE=grep; PATTERN="$2"; shift 2 ;;
         --audit) MODE=audit; shift ;;
         *)       CONF="$1"; shift ;;
     esac

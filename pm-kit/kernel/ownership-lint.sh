@@ -75,11 +75,11 @@ RATIFIED_FLAG=""
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --conf)    CONF="$2"; shift 2 ;;
-    --map)     MAP="$2"; shift 2 ;;
-    --claims)  CLAIMS="$2"; shift 2 ;;
-    --dev)     DEV="$2"; shift 2 ;;
-    --ratified) RATIFIED_FLAG="$2"; shift 2 ;;
+    --conf)    [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --conf needs a value" >&2; exit 64; }; CONF="$2"; shift 2 ;;
+    --map)     [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --map needs a value" >&2; exit 64; }; MAP="$2"; shift 2 ;;
+    --claims)  [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --claims needs a value" >&2; exit 64; }; CLAIMS="$2"; shift 2 ;;
+    --dev)     [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --dev needs a value" >&2; exit 64; }; DEV="$2"; shift 2 ;;
+    --ratified) [ $# -ge 2 ] && [ -n "$2" ] || { echo "ownership-lint: --ratified needs a value" >&2; exit 64; }; RATIFIED_FLAG="$2"; shift 2 ;;
     --quiet)   QUIET=1; shift ;;
     --refresh) REFRESH=1; shift ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
@@ -105,6 +105,10 @@ if [ -z "$CONF" ]; then
   [ "$N" = 1 ] && CONF=$(find "$KIT_DIR" -maxdepth 1 -name '*.conf')
 fi
 
+if [ -n "$CONF" ] && [ ! -f "$CONF" ]; then
+  echo "ownership-lint: STOP — --conf '$CONF' does not exist (a profile named explicitly is never replaced by discovery)." >&2
+  exit 2
+fi
 if [ -z "$CONF" ] || [ ! -f "$CONF" ]; then
   echo "ownership-lint: STOP — no profile found (--conf, \$PM_PROFILE, a single claude-brain/pm-kit/profiles/*.conf, or a single kernel/*.conf). This kernel carries no team/lane vocabulary of its own." >&2
   exit 2

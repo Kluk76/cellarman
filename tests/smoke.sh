@@ -76,6 +76,8 @@ mk_proj() {
 }
 # prof_set <VAR> <value>: later assignment wins when the profile is sourced.
 prof_set() { printf '%s=%s\n' "$1" "$2" >> "$PROJ/$PROFILE"; }
+# tmo <cmd...>: bounded run where a `timeout` exists (a hang must FAIL, not stall the suite).
+tmo() { if command -v timeout >/dev/null 2>&1; then timeout 10 "$@"; elif command -v gtimeout >/dev/null 2>&1; then gtimeout 10 "$@"; else "$@"; fi; }
 commit_all() { git add -- . && git commit -q -m "${1:-state}" && { [ ! -d "$REMOTE" ] || git push -q > /dev/null 2>&1; }; }
 
 ###############################################################################
@@ -113,6 +115,25 @@ if command -v zsh >/dev/null 2>&1; then
 else
   skip B5 "zsh not installed"
 fi
+
+###############################################################################
+# 1.4 / A11 — launcher without a hardcoded profile; honest --conf; usage errors
+###############################################################################
+mk_proj p14 remote
+run bash bin/pm-preflight.sh --no-fetch
+{ lacks 'no profile found'; }; check 1.4 "the verbatim launcher finds the single profile (rc=$RC)" $?
+run bash bin/pm-preflight.sh --conf "$SB/does-not-exist.conf"
+{ [ "$RC" = 2 ] && has "--conf '$SB/does-not-exist.conf' does not exist" && lacks 'no profile found'; }; check 1.4 "a missing --conf path is named as missing (rc=$RC)" $?
+run tmo bash "$KITREL/kernel/rails-index.sh" --conf "$SB/does-not-exist.conf"
+{ [ "$RC" = 2 ] && has 'does not exist'; }; check 1.4 "rails-index: missing --conf is named as missing (rc=$RC)" $?
+run tmo bash "$KITREL/catalog.sh" --grep
+{ [ "$RC" = 64 ] && has 'needs a pattern'; }; check A11 "catalog --grep without a pattern: usage error, no hang (rc=$RC)" $?
+run tmo bash "$KITREL/kernel/pm-preflight.sh" --conf
+{ [ "$RC" = 64 ] && has 'needs a value' && lacks 'unbound'; }; check A11 "pm-preflight --conf without a value: usage error (rc=$RC)" $?
+run tmo bash "$KITREL/kernel/ownership-lint.sh" --dev
+{ [ "$RC" = 64 ] && has 'needs a value' && lacks 'unbound'; }; check A11 "ownership-lint --dev without a value: usage error (rc=$RC)" $?
+run tmo bash "$KITREL/kernel/rails-index.sh" --conf
+{ [ "$RC" = 64 ] && has 'needs a value' && lacks 'unbound'; }; check A11 "rails-index --conf without a value: usage error (rc=$RC)" $?
 
 ###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"

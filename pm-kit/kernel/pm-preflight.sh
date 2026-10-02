@@ -71,7 +71,7 @@ PATHS=(); MIGS=()
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --conf)       CONF="$2"; shift 2 ;;
+    --conf)       [ $# -ge 2 ] && [ -n "$2" ] || { echo "pm-preflight: --conf needs a value" >&2; exit 64; }; CONF="$2"; shift 2 ;;
     --no-fetch)   DO_FETCH=0; shift ;;
     --probe-db)   DO_PROBE=1; shift ;;
     --json)       DO_JSON=1; shift ;;
@@ -99,6 +99,10 @@ if [ -z "$CONF" ]; then
   [ "$N" = 1 ] && CONF=$(find "$KIT_DIR" -maxdepth 1 -name '*.conf')
 fi
 
+if [ -n "$CONF" ] && [ ! -f "$CONF" ]; then
+  echo "pm-preflight: STOP — --conf '$CONF' does not exist (a profile named explicitly is never replaced by discovery)." >&2
+  exit 2
+fi
 if [ -z "$CONF" ] || [ ! -f "$CONF" ]; then
   echo "pm-preflight: STOP — no profile found (--conf, \$PM_PROFILE, a single claude-brain/pm-kit/profiles/*.conf, or a single kernel/*.conf). This kernel carries no project nouns of its own and cannot run without one." >&2
   exit 2
