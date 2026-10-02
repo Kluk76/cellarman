@@ -24,8 +24,12 @@ Read these before upgrading an existing install.
   lint used 1 (the code of a shared lane) for "cannot judge", and the claims gate
   used 2. 0, 1 and 2 are verdicts; any other code means no verdict exists. The
   launcher passes every code through and exits 3 itself when the kernel is missing.
-- **Open arbitration items past `PF_ARB_STOP_DAYS` now STOP** (pre-flight exit 2).
-  They used to be a WARN, so the variable stopped nothing.
+- **Open arbitration items past `PF_ARB_STOP_DAYS` are an ambient WARN**: marked
+  `[ambient]`, with id, title, age and the threshold, counted in the verdict line
+  and in `"ambient_warn"` of the `--json` summary, and never exit 2 by themselves. The
+  register is checked on every run whatever the build is, so a hard STOP would freeze
+  every unrelated build behind one stale item; whether an item is in this build's
+  domain is the PM's call (kernel, Response item 9).
 - **An always-checked (ambient) STOP is a WARN**, marked `[ambient]` in text and
   `"ambient":true` in `--json`. A STOP that comes from a governance path
   (`PF_ALWAYS_PATHS`) and not from the build's own paths no longer blocks unrelated
@@ -66,8 +70,10 @@ Read these before upgrading an existing install.
   `rails-stale` (the index is newer than the rails table).
 - **The arbitration check reads the profile**: header pattern `PF_ARB_HEADER_RE`
   (default `^### `), id pattern `PF_ARB_ID_RE`, closure words `PF_ARB_CLOSED_RE`, an
-  optional declared-age pattern `PF_ARB_DECLARED_AGE_RE`, and the escalation wording
-  `PF_ARB_ESCALATION`, quoted verbatim. The French "· N j" age field is no longer read.
+  optional declared-age pattern `PF_ARB_DECLARED_AGE_RE`. The French "· N j" age
+  field is no longer read, and the pre-flight carries no escalation wording at all:
+  the line states id, title, age and threshold, and the policy lives in the agent
+  file's `${ESCALATION_POLICY}` binding.
   The doctor's register check (section 12) follows `PF_ARB_FILE` instead of a
   hardcoded file name.
 - **`PF_QUEUE_TARGET` is now used** as the command that lists the queue on the
@@ -164,7 +170,7 @@ Audit references are to the code audit that preceded 0.2.0.
   rejected by name (A13).
 - Arbitration: the id pattern and the closure vocabulary come from the profile and
   are read by the pre-flight and the doctor alike (A1, A15); `PF_ARB_STOP_DAYS`
-  stops (A17).
+  is honoured, as an ambient warning (A17).
 - rails-index: severity no longer depends on the awk flavour or the locale (A8); an
   unconfigured or edge-less graph cache is UNMEASURED, not "MEASURED" (A7); a rail
   truncated at `PF_RAILS_TRUNCATE` no longer ends inside a UTF-8 character.
@@ -180,8 +186,8 @@ Audit references are to the code audit that preceded 0.2.0.
 ### Removed
 
 - The kernel no longer has the PM write out escalation text for overdue items:
-  overdue items are named, and `${ESCALATION_POLICY}` (and, in the pre-flight,
-  `PF_ARB_ESCALATION`) says what follows.
+  overdue items are named, and `${ESCALATION_POLICY}` says what follows. The profile
+  variable `PF_ARB_ESCALATION` does not exist (policy is not duplicated in a script).
 - "Repeat every rail hit verbatim" and "hold the lock" (no lock tool ships).
 - 91 profile variables that no script read, and the French vocabulary and the
   origin project's nouns from every script.

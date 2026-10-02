@@ -192,9 +192,6 @@ export ARB_HEADER_RE
 # declared age is read.
 ARB_DECLARED_AGE_RE="${PF_ARB_DECLARED_AGE_RE:-}"
 export ARB_DECLARED_AGE_RE
-# PF_ARB_ESCALATION: the project's own words for what happens to an item past the
-# stop threshold. Quoted verbatim next to the count; the script adds no wording.
-ARB_ESCALATION="${PF_ARB_ESCALATION:-}"
 DRIFT_SLUG_SED="${PF_DRIFT_SLUG_RE:-}"
 [ -n "$DRIFT_SLUG_SED" ] || DRIFT_SLUG_SED='s/^[0-9]\{12\}_[a-z]_//; s/[-_].*$//'
 
@@ -280,6 +277,7 @@ RC=0
 WARN_N=0
 STOP_N=0
 UNMEAS_N=0
+AMB_N=0
 JSON_ROWS=""
 # _AMB=1 marks the row being emitted as AMBIENT: it comes only from an
 # always-checked governance path, not from this build's own paths. Text rows
@@ -310,7 +308,7 @@ info() { [ "$DO_JSON" = 1 ] || printf '  \033[36minfo\033[0m %-22s %s\n' "$1" "$
 unmeasured() { UNMEAS_N=$((UNMEAS_N+1)); [ "$RC" -lt 1 ] && RC=1
          [ "$DO_JSON" = 1 ] || printf '  \033[35mUNMEASURED\033[0m %-22s %s\n' "$1" "$2"; _row unmeasured "$1" "$2"; }
 ok_amb()   { _AMB=1; ok   "$1" "[ambient] $2"; _AMB=0; }
-warn_amb() { _AMB=1; warn "$1" "[ambient] $2"; _AMB=0; }
+warn_amb() { AMB_N=$((AMB_N+1)); _AMB=1; warn "$1" "[ambient] $2"; _AMB=0; }
 sec()  { [ "$DO_JSON" = 1 ] || printf '\n\033[1m%s\033[0m\n' "$1"; }
 
 [ "$DO_JSON" = 1 ] || printf '\033[1mpm-preflight\033[0m  %s  @ %s\n' "$REPO_ROOT" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -773,11 +771,13 @@ else
     # would collapse and shift the rest.
     while IFS="$(printf '\037')" read -r LVL ID AGE DRIFT TITLE; do
       case "$LVL" in
-        # PF_ARB_STOP_DAYS is a STOP threshold: an item open that long blocks the
-        # session until a human rules on it. What happens to it then is the
-        # project's escalation policy (PF_ARB_ESCALATION, quoted below), not text
-        # this script invents.
-        STOP) stop arbitration "$ID${TITLE:+ — $TITLE} — $AGE d open, past the ${ARB_STOP_DAYS}d stop threshold$DRIFT" ;;
+        # PF_ARB_STOP_DAYS: an item open that long is reported, but as an AMBIENT
+        # warning, never a STOP. The register is checked on every run whatever the
+        # build is, so one stale item would freeze every unrelated build at exit 2;
+        # whether the item is in THIS build's domain is the PM's call (kernel,
+        # Response item 9). The line states the fact only: id, title, age,
+        # threshold. What follows is the project policy, held in the agent file.
+        STOP) warn_amb arbitration "$ID${TITLE:+ — $TITLE} — $AGE d open, past the ${ARB_STOP_DAYS}d stop threshold$DRIFT" ;;
         WARN) warn arbitration "$ID${TITLE:+ — $TITLE} — $AGE d open (warn threshold ${ARB_WARN_DAYS}d)$DRIFT" ;;
         ok)   ok arbitration "$ID${TITLE:+ — $TITLE} — $AGE d open$DRIFT" ;;
       esac
@@ -791,7 +791,6 @@ else
       warn arbitration "$NFMT header(s) OUTSIDE THE CLOSURE VOCABULARY, counted OPEN because they could not be read: $FMTIDS— closure is written ' · <WORD>' with the word GLUED to the ' · ' separator and any decoration AFTER it; <WORD> is one of: $ARB_CLOSED_RE (profile variable PF_ARB_CLOSED_RE). OFF-TEMPLATE = decoration between the separator and the word (near-certain); SUSPECT = a closure word elsewhere in the header (may be legitimate prose)."
     fi
     [ "$NSTALE" -gt 0 ] && warn arbitration "$NSTALE item(s) carry a declared age that disagrees with the age computed from the id (PF_ARB_DECLARED_AGE_RE): the field is decoration; delete it or generate it"
-    [ "$NSTOP" -gt 0 ] && warn arbitration "$NSTOP item(s) past the ${ARB_STOP_DAYS}d stop threshold${ARB_ESCALATION:+ — escalation policy: $ARB_ESCALATION}"
     ok arbitration "queue measured: $NOPEN open, $NSTOP past the stop threshold, $NWARN past the warn threshold"
   fi
 fi
@@ -947,13 +946,13 @@ fi
 
 # ── verdict ────────────────────────────────────────────────────────────────────
 if [ "$DO_JSON" = 1 ]; then
-  printf '{"rc":%d,"warn":%d,"stop":%d,"unmeasured":%d,"checks":[%s]}\n' "$RC" "$WARN_N" "$STOP_N" "$UNMEAS_N" "${JSON_ROWS%,}"
+  printf '{"rc":%d,"warn":%d,"stop":%d,"unmeasured":%d,"ambient_warn":%d,"checks":[%s]}\n' "$RC" "$WARN_N" "$STOP_N" "$UNMEAS_N" "$AMB_N" "${JSON_ROWS%,}"
 else
   printf '\n'
   case "$RC" in
     0) printf '\033[32m● CLEAR\033[0m — no warning, no STOP, nothing unmeasured. (Ownership and rails cover only the paths given with --paths.) Proceed.\n' ;;
-    1) printf '\033[33m● PROCEED WITH NAMED WARNINGS (%d warning(s), %d unmeasured)\033[0m — the consult MUST name each warning and report each unmeasured check as unmeasured.\n' "$WARN_N" "$UNMEAS_N" ;;
-    2) printf '\033[31m● STOP (%d blocking, %d warning(s), %d unmeasured)\033[0m — do not sequence this build. Resolve, or hand it to a human.\n' "$STOP_N" "$WARN_N" "$UNMEAS_N" ;;
+    1) printf '\033[33m● PROCEED WITH NAMED WARNINGS (%d warning(s) of which %d ambient, %d unmeasured)\033[0m — the consult MUST name each warning and report each unmeasured check as unmeasured.\n' "$WARN_N" "$AMB_N" "$UNMEAS_N" ;;
+    2) printf '\033[31m● STOP (%d blocking, %d warning(s) of which %d ambient, %d unmeasured)\033[0m — do not sequence this build. Resolve, or hand it to a human.\n' "$STOP_N" "$WARN_N" "$AMB_N" "$UNMEAS_N" ;;
   esac
 fi
 exit "$RC"

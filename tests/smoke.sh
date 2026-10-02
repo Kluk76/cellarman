@@ -476,7 +476,12 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 { [ "$RC" != 2 ] && has 'WARN arbitration.*ageing-item — 4 d open' "$OUTT" && lacks 'STOP arbitration' "$OUTT"; }; check A17 "an item 4 days old (past WARN_DAYS=3) only WARNs (rc=$RC)" $?
 printf '### H-%s-a-overdue-item\n' "$(ago_ymd 10)" >> "$HR"
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
-{ [ "$RC" = 2 ] && has 'STOP arbitration.*overdue-item — 10 d open, past the 7d' "$OUTT"; }; check A17 "an item 10 days old (past STOP_DAYS=7) STOPs, exit 2 (rc=$RC)" $?
+{ [ "$RC" = 1 ] && has 'WARN arbitration.*\[ambient\].*overdue-item — 10 d open, past the 7d stop threshold' "$OUTT" && lacks 'STOP' "$OUTT"; }; check A17 "an item 10 days old (past STOP_DAYS=7) is an ambient WARN, exit 1, never a STOP (rc=$RC)" $?
+{ has 'ambient' "$OUTT" && has '1 ambient' "$OUTT"; }; check A17 "the verdict line counts ambient warnings separately" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --json
+{ has '"check":"arbitration","msg":"\[ambient\][^"]*overdue-item[^"]*","ambient":true' && has '"stop":0' && has '"ambient_warn":1'; }; check A17 "--json: the overdue item row carries ambient:true; stop=0; ambient_warn counted in the summary object" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths src/x.php; strip
+{ [ "$RC" = 1 ] && has 'overdue-item' "$OUTT"; }; check A17 "an overdue item does not raise the exit code to 2 for an unrelated build either (rc=$RC)" $?
 
 ###############################################################################
 # A3 — a live claim stays live unless its last row is closed/abandoned
@@ -739,27 +744,26 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths ref_users; strip
 mk_proj pa5 remote
 HR="$MEMDIR/dev-handoff-register.md"
 printf '# register\n\n### H-%s-a-fresh-item · Which importer for the CSV feed?\n### H-%s-a-old-item · Rename the billing table? · 1 d\n### H-%s-a-late-item · Pick the tax rounding mode\n### H-%s-a-shut-item · DONE\n' "$(ago_ymd 0)" "$(ago_ymd 5)" "$(ago_ymd 12)" "$(ago_ymd 30)" > "$HR"
-prof_set PF_ARB_ESCALATION '""'; prof_set PF_ARB_DECLARED_AGE_RE '""'
+prof_set PF_ARB_DECLARED_AGE_RE '""'
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 { has 'ok   arbitration.*a-fresh-item — Which importer for the CSV feed? — 0 d open' "$OUTT" \
   && has 'WARN arbitration.*a-old-item — Rename the billing table?.* — 5 d open' "$OUTT" \
-  && has 'STOP arbitration.*a-late-item — Pick the tax rounding mode — 12 d open, past the 7d stop threshold' "$OUTT"; }; check A5 "every open item is listed with its id and title, at its own level" $?
+  && has 'WARN arbitration.*\[ambient\].*a-late-item — Pick the tax rounding mode — 12 d open, past the 7d stop threshold' "$OUTT"; }; check A5 "every open item is listed with its id and title, at its own level" $?
 { lacks 'a-shut-item' "$OUTT"; }; check A5 "a closed item is not listed" $?
-{ lacks 'STALE' "$OUTT" && lacks 'escalation' "$OUTT" && lacks ' j ' "$OUTT"; }; check A5 "no declared-age field is read and no escalation wording appears unless the profile sets them" $?
+{ lacks 'STALE' "$OUTT" && lacks 'escalation' "$OUTT" && lacks ' j ' "$OUTT"; }; check A5 "no declared-age field is read and the pre-flight carries no escalation wording" $?
 prof_set PF_ARB_DECLARED_AGE_RE "'· [0-9]+ d'"
-prof_set PF_ARB_ESCALATION '"open a ticket by hand"'
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
-{ has 'a-old-item.*\[declared 1d — STALE\]' "$OUTT" && has 'escalation policy: open a ticket by hand' "$OUTT"; }; check A5 "PF_ARB_DECLARED_AGE_RE flags a stale declared age, in English; PF_ARB_ESCALATION is quoted verbatim" $?
+{ has 'a-old-item.*\[declared 1d — STALE\]' "$OUTT" && lacks 'escalation' "$OUTT"; }; check A5 "PF_ARB_DECLARED_AGE_RE flags a stale declared age, in English" $?
 # a register with another header shape and another id shape
 printf '# questions\n\n## Q-%s-x-pricing · Which tier names?\n### H-%s-a-ignored-item · not a header here\n' "$(ago_ymd 9)" "$(ago_ymd 9)" > "$HR"
 prof_set PF_ARB_HEADER_RE "'^## Q-'"
 prof_set PF_ARB_ID_RE "'Q-[0-9]+-[a-z]-[a-z]+'"
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
-{ [ "$RC" = 2 ] && has 'STOP arbitration.*Q-[0-9]*-x-pricing — Which tier names? — 9 d open' "$OUTT" && lacks 'ignored-item' "$OUTT"; }; check A5 "PF_ARB_HEADER_RE selects the header lines; the date is read from the id whatever its prefix (rc=$RC)" $?
+{ [ "$RC" = 1 ] && has 'WARN arbitration.*\[ambient\].*Q-[0-9]*-x-pricing — Which tier names? — 9 d open' "$OUTT" && lacks 'ignored-item' "$OUTT"; }; check A5 "PF_ARB_HEADER_RE selects the header lines; the date is read from the id whatever its prefix (rc=$RC)" $?
 if command -v mawk >/dev/null 2>&1; then
   mkdir -p "$SB/awkshim-a5"; ln -sf "$(command -v mawk)" "$SB/awkshim-a5/awk"
   run env PATH="$SB/awkshim-a5:$PATH" ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
-  { has 'STOP arbitration.*Q-[0-9]*-x-pricing — Which tier names? — 9 d open' "$OUTT"; }; check A5 "same listing under mawk" $?
+  { has 'WARN arbitration.*\[ambient\].*Q-[0-9]*-x-pricing — Which tier names? — 9 d open' "$OUTT"; }; check A5 "same listing under mawk" $?
 else skip A5 "mawk not installed (awk-flavour case)"; fi
 
 ###############################################################################
@@ -1056,7 +1060,7 @@ cd "$C" || exit 64
 V="$(tr -d ' \n' < VERSION)"
 { [ "$V" = 0.2.0 ]; }; check 16 "VERSION is 0.2.0 (got '$V')" $?
 { grep -q "^## \[$V\] - " CHANGELOG.md && ! grep -q '^## \[Unreleased\]' CHANGELOG.md; }; check 16 "CHANGELOG has a dated entry for the VERSION and no Unreleased section" $?
-for w in 'Exit code 3 means' 'past `PF_ARB_STOP_DAYS` now STOP' 'does not push unless asked' 'ambient' 'Solo mode'; do
+for w in 'Exit code 3 means' 'past `PF_ARB_STOP_DAYS` are an ambient WARN' 'does not push unless asked' 'ambient' 'Solo mode'; do
   grep -qF "$w" CHANGELOG.md; check 16 "CHANGELOG 'Behaviour changes' mentions: $w" $?
 done
 cd "$PROJ" 2>/dev/null || true

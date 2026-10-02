@@ -30,9 +30,11 @@ Header, exactly:
 - Close an item by editing its header AND, if it has a body, the body's header
   too: the doctor compares the two.
 - Escalation (what happens past `PF_ARB_WARN_DAYS` / `PF_ARB_STOP_DAYS`) is a
-  HUMAN act, and the policy is yours: write it in `PF_ARB_ESCALATION` and the
-  pre-flight quotes it beside the count. The PM names overdue items in its
-  recommendation; it does not open the ticket or send the message itself.
+  HUMAN act, and the policy is yours: write it in the agent file's
+  `${ESCALATION_POLICY}` binding (the scripts carry no policy wording). Past the stop
+  threshold the pre-flight reports the item as an ambient warning with its id, title,
+  age and the threshold; the PM names overdue items in its recommendation and does
+  not open the ticket or send the message itself.
 
 ## Template for a body
 
