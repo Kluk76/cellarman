@@ -12,7 +12,14 @@ both sides.
 
 1. Copy the kernel, everything from the comment that opens it to the comment
    that closes it, unchanged, into your agent file under its frontmatter and
-   opening paragraph. The README quickstart has a command that does this.
+   opening paragraph. `pm-kit/init.sh` does this when it creates the agent file.
+   To replace the kernel in an existing agent file after a kit upgrade, run this
+   from the repository root (it rewrites only what lies between the markers;
+   then copy the agent file to `~/.claude/agents/` again):
+
+       K=claude-brain/pm-kit/PROTOCOL.md; A=claude-brain/agents/<name>-pm.md
+       awk '/^<!-- cellarman kernel: begin/{k=1} k; /^<!-- cellarman kernel: end/{k=0}' "$K" > "${TMPDIR:-/tmp}/kernel.md"
+       awk -v kf="${TMPDIR:-/tmp}/kernel.md" '/^<!-- cellarman kernel: begin/ { while ((getline l < kf) > 0) print l; skip=1; next } /^<!-- cellarman kernel: end/ { skip=0; next } !skip' "$A" > "$A.new" && mv "$A.new" "$A"
 2. Directly under it, add the bindings table with one row per token. The
    table in this file is the canonical list;
    [`skeleton/agent-example.md`](../skeleton/agent-example.md) shows it filled
@@ -223,7 +230,9 @@ compare:
     awk '/^<!-- cellarman kernel: end/{k=1} k' <agent-file> \
       | grep -o '^| `\${[A-Z_]*}`' | grep -o '\${[A-Z_]*}' | sort -u
 
-The two lists should be identical. No script in the kit runs this check yet.
+The two lists should be identical. `doctor.sh` runs this check (its check 13,
+which also compares the kernel block with the one in this file and looks for a
+leftover paste placeholder); the two commands above are the same check by hand.
 
 ## Budgets
 
