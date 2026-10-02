@@ -1,0 +1,29 @@
+<!--
+  CLAUDE.md.snippet: append this section to your project's CLAUDE.md and
+  replace `acme-pm` with your agent's name. Delete this comment afterwards.
+
+  Why it exists: CLAUDE.md is loaded into every session, so this is the most
+  reliable of the three places that tell the main session to consult the PM
+  (the other two are the agent's description and the optional SessionStart
+  hook). It is still an instruction. Claude Code has no mechanism that forces
+  a session to consult a subagent
+  (https://code.claude.com/docs/en/sub-agents, read 2026-10-02), and nothing
+  in this kit detects a build that was planned without a consult.
+-->
+
+## Project manager
+
+This project keeps its architecture rules and its build record with the `acme-pm` subagent. It has memory that this session does not.
+
+- Before planning or starting a build, consult `acme-pm`. Open the prompt with the kind line, `consult: plan`, then give the task, the files and tables it touches, the constraints, and the id of the plan item it serves (or "off-plan"). To have a change checked, use `consult: review`. For a question of fact, use `consult: question`.
+- After a build lands or stops, consult it again with the kind line `consult: report-back`, then the commits, every queued change you wrote (including any you already applied), how far the change got (committed, pushed, deployed, applied), the lanes you crossed and what is open. Its record is only as current as the last report it was given.
+- If it reports a STOP, do not build past it. Tell the user what has to be decided.
+- If its answer labels a statement "recorded <date>, not re-checked", check that statement yourself before acting on it.
+- A build that will span more than one session opens a claim first, through the claim command, and closes it when the change is pushed. Do not write rows into the claims file by hand.
+
+Two habits this project depends on:
+
+- What an earlier session wrote about the state of the system is a claim. Check it against the repository or the live system before reporting it as current.
+- Read an exit code from the command itself, not through a pipe: `cmd > out.log 2>&1; echo $?`, then read the file. `cmd | tail` returns the status of `tail`. Do not chain a success message after a piped command.
+
+If the memory-sync hook is installed, a commit may be followed by an automatic push of memory files. Do not chain a push and a deploy in one command line.

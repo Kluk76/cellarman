@@ -1,26 +1,68 @@
-# acme-pm — Project Manager Knowledge Base (LEAN INDEX)
+# acme-pm: Project Manager Knowledge Base (LEAN INDEX)
 
-> This is the PM's memory. It is a LEAN INDEX: current build-state, sequencing, RESUME POINT, and ONE-LINE load-triggered pointers to thematic files. Detail / completed-arc / any section over ~5 lines is COMPILED OUT into `acme-pm-memory/<topic>.md`, loaded ON DEMAND only when a task touches that topic. Keep this index small + current — date load-bearing facts; verify against the live system/repo before recording.
+> SEED NOTE (delete once filled). This file is the PM's always-read index: it
+> is read WHOLE on every consult, so it holds rules, standing facts and pointers,
+> and nothing that moves. Counts, queue states, ages, next-free numbers and "where
+> we are" status are NOT recorded here: the pre-flight prints them live, and a
+> written copy goes stale on the reassuring side. Placeholders below are code
+> spans, not links, so the doctor passes on the untouched seed; when a topic file
+> exists, turn its pointer into a markdown link relative to this file and the
+> doctor will check that it resolves.
 
-## 🔵 CHANGE-LOG HEAD (ALWAYS re-verify at build-start)
-> **HEAD = <latest migration/change id>** (<date>, commit `<hash>`). NEVER trust a memorised next-free — re-verify against the live system AND pull first (multi-dev: a committed-but-unapplied change from the other dev also reserves its number).
-> Full dated journal (every change + rationale, newest-first) → [journal.md](acme-pm-memory/journal.md) — load when you need the history of a specific change.
+## Rules
 
-## 📍 CURRENT BUILD-STATE (one-glance)
-- **Canonical store:** <where the truth lives; how to reach it read-only>.
-- <one line per standing fact a consult must never contradict>
+Standing rules for this project that cannot be tied to a nameable surface. Rules
+that CAN be tied to a surface are rails, below. Date each one and say how it was
+established: "(measured <date>, <how>)" or "(ruled <date> by <who>)".
 
-## ⏭ RESUME POINT
-**<status>.** <what the project is waiting on; what dispatches when unblocked — one line each, pointer per item>
+- `<rule>`: one line, with its date and where it came from.
 
-## 🟡 OPEN ACTIVE ARCS (status one-line; READ the topic file + recap unprompted when triggers fire)
-- **<Arc name>** — <status word> (<date>). 🔴 <compressed rails>. Trigger "<word>"/"<word>" → [<topic>.md](acme-pm-memory/<topic>.md).
+## Rails
 
-## 🟢 SHIPPED / CLOSED (one-line; full detail in the cited topic file)
-- ✅ **<Arc name> — SHIPPED <date>** (<commit>). Trigger "<word>" → [<topic>.md](acme-pm-memory/<topic>.md) §Build log.
+A rail is a recorded constraint attached to a surface. Write each as a list item
+(a line starting with `- `) that names its surface in backticks, with its severity
+marker first: the rails miner (`kernel/rails-index.sh`) reads only list items and
+backticked names, so a rail written any other way is recorded but never indexed.
+After writing one, grep the rails table for one of its surfaces. Severity means
+ACTION REQUIRED, not importance: reserve the stop marker for "forbidden".
 
-## 📂 THEMATIC FILES (load on demand)
-- [<topic>.md](acme-pm-memory/<topic>.md) — read when touching <surface/domain>.
+- ⛔ `<surface>`: what must not be done to it, and why. (recorded <date>)
+- 🔴 `<surface>`: what to check before touching it. (recorded <date>)
 
-## MAINTENANCE NOTE
-Keep THIS index lean — it is read WHOLE on EVERY PM invocation. **HARD BYTE BUDGET per `claude-brain/pm-kit.conf` — `claude-brain/pm-kit/doctor.sh` enforces it; run the doctor after recording and act on its warnings.** When a section grows past ~5 lines, a line past ~1.5 KB, or anything turns historical, COMPILE IT OUT into the relevant thematic file and leave a one-line load-triggered pointer. Dated journal entries go to journal.md (newest-first); dated arc narration goes to the arc topic file under `## Build log`. Rails are COMPRESSED, never dropped. The index is the map; the depth lives in the thematic files.
+## Standing facts
+
+Facts a consult must never contradict, each with how it was established.
+
+- Canonical store: `<where the truth lives>` and how to reach it read-only. (measured <date>, <how>)
+
+## Open arcs
+
+One line per arc: name, status word, its rails in short form, trigger words,
+pointer. Detail goes in the arc's topic file under `## Build log`, newest first.
+
+- **<Arc name>**: <status word> (<date>). Trigger "<word>" / "<word>". Pointer: `acme-pm-memory/<topic file>`.
+
+## Open decisions
+
+Questions that need a ruling from another developer or a human live in
+`acme-pm-memory/dev-handoff-register.md`, not here. The pre-flight lists the open
+items with their ages; this index records none of them.
+
+## Shipped
+
+Delivered arcs are one line each in `acme-pm-memory/shipped-arcs-register.md`
+(grep it; do not read it whole).
+
+## Topic files (load on demand)
+
+- `acme-pm-memory/<topic file>`: read when touching <surface or domain>.
+
+## Maintenance
+
+Before adding a line here, apply the admission tests in the kernel ("Memory"):
+could the rule be broken without touching a nameable surface? does it restate
+something already in a topic file or an auto-loaded document? what does it
+replace? The byte budget is in `claude-brain/pm-kit.conf` and
+`claude-brain/pm-kit/doctor.sh` enforces it; run the doctor after recording. When
+a section grows past a few lines, or anything turns historical, move it to a topic
+file and leave a one-line pointer. Rails are compressed, never dropped.

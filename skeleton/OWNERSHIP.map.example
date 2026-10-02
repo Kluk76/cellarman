@@ -1,0 +1,61 @@
+# OWNERSHIP.map — who decides what, keyed on CONCERN (never on file alone).
+# Read by kernel/ownership-lint.sh; location is PF_OWNERSHIP_MAP in the profile.
+#
+# WHY CONCERN AND NOT FILE
+#   A per-file map marks most of a shared application contested, and blocks a
+#   correct, agreed cross-concern change (a project-wide palette swap, say). A
+#   map that is overridden once is ignored forever. The real boundary is
+#   "A owns the colour tokens in EVERY file; B owns the business logic in the
+#   production files" — a concern axis. So a lane is (owner x concern x glob).
+#
+# FORMAT (whitespace-separated)   <mode> <owner> <concern> <glob>   [# note]
+#   mode     own        this owner decides at this concern: ok for the owner,
+#                       STOP for others
+#            shared     both build here by design: WARN, deploy per file, verify
+#            contested  both have landed here and nobody has ruled: WARN, open a
+#                       handoff item BEFORE editing
+#            frozen     no build decision may change it: STOP, owner ruling
+#                       required — the one wall a RATIFIED receipt cannot open
+#            (unmapped) undescribed: WARN — describe it, or say why it has none
+#   owner    a dev initial from the profile's DEVS, or * for any/both
+#   concern  a short word for the kind of change (logic, schema, style, nav,
+#            access, fiscal...: your own vocabulary, no list to maintain), or *
+#   glob     repo-relative glob, or table:<name> for a data surface
+#
+# 'contested' IS NOT A FAILURE STATE. It is the honest label for a boundary
+# nobody has decided yet; naming it turns a silent collision into a scheduled
+# decision.
+#
+# THE ESCAPE HATCH IS A RECEIPT, NOT A GATE. Cross-concern work is legitimate.
+# Put a `RATIFIED: <who>, <when>` line in the commit message (or pass
+# --ratified). The linter cannot verify it; it records that the claim was made
+# and lists every lane crossed, so the owners who must smoke-test can be named.
+# What is protected is ATTENTION, not permission.
+#
+# MATCH SEMANTICS
+#   - A path can match SEVERAL lanes at different concerns; every matching lane
+#     is reported.
+#   - One glob per line. Matching is shell `case` pattern matching: braces
+#     {a,b} are literal here and will not match. Write two lines.
+#   - Put broad catch-alls FIRST and specific carve-outs LAST.
+#   - Evidence is generated, lanes are ruled: `ownership-lint.sh --refresh`
+#     recomputes per-lane commit counts from git and prints CONTRADICTED when a
+#     lane's evidence disagrees with its owner. It never edits a lane.
+#
+# EXAMPLE (neutral; replace with your own lanes)
+
+# 0. Catch-all, broadest first: B owns visual tokens in every file.
+own   b  style      *
+
+# A. Application logic.
+own   a  logic      src/billing/*
+own   a  logic      src/ops/*
+own   b  style      src/views/*.css
+shared  *  nav      src/views/layout.*
+contested  *  logic  src/shared/*
+
+# B. Data surfaces.
+own   a  schema     table:invoices
+
+# C. Frozen until the owner rules.
+frozen  a  fiscal   src/billing/tax-seal.*

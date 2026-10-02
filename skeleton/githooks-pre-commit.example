@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+# githooks-pre-commit.example — a pre-commit hook that runs the claims gate.
+#
+# INSTALL (once per clone — git reads hooks only from the directory named by
+# core.hooksPath, so a clone that skips this step commits with NO gate and
+# says nothing about it):
+#   cp skeleton/githooks-pre-commit.example .githooks/pre-commit
+#   chmod +x .githooks/pre-commit
+#   git config core.hooksPath .githooks
+# core.hooksPath applies to EVERY worktree of the clone: announce it to
+# whoever shares the clone. Set PF_HOOKS_PATH in the profile to the same
+# directory so pm-preflight can check that the setting is in place (a hook
+# cannot detect its own absence).
+#
+# Add your own gates below the claims gate; keep the "status" pattern so one
+# failing gate does not hide the others.
+#
+# PM_KIT_DIR (default claude-brain/pm-kit, repo-relative) is where the kit is
+# installed. A missing gate script FAILS the commit: a gate that silently
+# skips is a false green.
+set -u
+[ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
+
+repo_root="$(git rev-parse --show-toplevel)" || exit 1
+kit_dir="${PM_KIT_DIR:-claude-brain/pm-kit}"
+case "$kit_dir" in /*) ;; *) kit_dir="$repo_root/$kit_dir" ;; esac
+
+status=0
+
+# Claims gate: refuses an added open/restated row without a session field and
+# any blank row; warns (never blocks, never dedupes) on duplicate fields 1..4.
+# Self-check of the gate itself:  bash <kit>/lint-claims-session.sh --self-test
+gate="$kit_dir/lint-claims-session.sh"
+if [ -f "$gate" ]; then
+  bash "$gate" || status=1
+else
+  echo "pre-commit: claims gate not found at $gate (set PM_KIT_DIR) — refusing to commit without it" >&2
+  status=1
+fi
+
+# your own gates here, e.g.:
+#   bash "$repo_root/scripts/lint-something.sh" || status=1
+
+exit "$status"

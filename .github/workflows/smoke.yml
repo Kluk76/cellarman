@@ -1,0 +1,103 @@
+name: smoke
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke:
+    name: smoke (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Use the system bash and awk (not Homebrew's) on macOS
+        if: runner.os == 'macOS'
+        run: |
+          # Homebrew's bash 5 / gawk come first on the runner PATH; the kit is
+          # specified against /bin/bash 3.2 and the system BSD tools.
+          echo "/bin" >> "$GITHUB_PATH"
+          echo "/usr/bin" >> "$GITHUB_PATH"
+      - name: Install gawk, mawk and shellcheck (macOS) so the awk-flavour and lint cases run
+        if: runner.os == 'macOS'
+        env:
+          HOMEBREW_NO_AUTO_UPDATE: "1"
+          HOMEBREW_NO_INSTALL_CLEANUP: "1"
+        run: |
+          # Installed beside the system tools, never in front of them: the
+          # suites still run with /bin/bash and /usr/bin/awk; the awk-flavour
+          # cases pick gawk / mawk up explicitly through a PATH shim.
+          brew install gawk mawk shellcheck
+      - name: Show tool versions (what is tested)
+        run: |
+          echo "bash: $(command -v bash)"; bash --version | head -n 1
+          echo "awk:  $(command -v awk)"; awk -version 2>&1 | head -n 1 || true
+          awk --version 2>&1 | head -n 1 || true
+          echo "gawk: $(command -v gawk || echo none)  mawk: $(command -v mawk || echo none)  shellcheck: $(command -v shellcheck || echo none)"
+          echo "sed:  $(command -v sed)"; echo "grep: $(command -v grep)"
+          git --version
+          jq --version
+          echo "LANG=${LANG:-} LC_ALL=${LC_ALL:-}"
+      - name: Smoke suite
+        if: always()
+        run: bash tests/smoke.sh
+      - name: Ports suite (sync, ledger, claims)
+        if: always()
+        run: bash tests/ports.sh
+      - name: Init suite (pm-kit/init.sh)
+        if: always()
+        run: bash tests/init.sh
+      - name: Quickstart (the README commands, run literally)
+        if: always()
+        run: bash tests/quickstart.sh
+
+  mawk:
+    name: smoke (ubuntu, mawk, LC_ALL=C)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install mawk and make it the default awk
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y mawk
+          sudo update-alternatives --set awk /usr/bin/mawk
+          awk -W version 2>&1 | head -n 1
+      - name: Smoke suite under mawk and the C locale
+        if: always()
+        env:
+          LC_ALL: C
+        run: bash tests/smoke.sh
+      - name: Ports suite under mawk and the C locale
+        if: always()
+        env:
+          LC_ALL: C
+        run: bash tests/ports.sh
+      - name: Init suite under mawk and the C locale
+        if: always()
+        env:
+          LC_ALL: C
+        run: bash tests/init.sh
+      - name: Quickstart under mawk and the C locale
+        if: always()
+        env:
+          LC_ALL: C
+        run: bash tests/quickstart.sh
+
+  shellcheck:
+    name: shellcheck
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: shellcheck
+        run: |
+          shellcheck --version
+          shellcheck -x \
+            pm-kit/*.sh pm-kit/kernel/*.sh \
+            skeleton/*.sh skeleton/hooks/*.sh skeleton/githooks-pre-commit.example \
+            tests/*.sh

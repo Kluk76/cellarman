@@ -24,22 +24,30 @@
 #      reads it, directly or transitively (a view-of-a-view is still in
 #      scope). This is the condition that makes the tool worth shipping: miss
 #      it and a fast recall becomes a MISSED recall. The dependency graph is a
-#      profile-owned, cached SSH probe (kernel does not know MySQL or
-#      information_schema) — --refresh-graph regenerates it; without a cache
+#      profile-owned, cached probe (the kernel does not know how your
+#      database or build system is reached) — --refresh-graph regenerates it; without a cache
 #      AND without --refresh-graph, expansion is visibly UNMEASURED, never a
 #      silent green.
 #
 # OUTPUT
 #   PF_RAILS_OUTPUT (state/RAILS-BY-ARTEFACT.tsv), 5 tab-separated columns:
-#     artefact <TAB> severite <TAB> rail (<=~300c) <TAB> source (file#line) <TAB> origine (direct|via:<parent>)
+#     artefact <TAB> severity <TAB> rail (<=~300c) <TAB> source (file#line) <TAB> origin (direct|via:<parent>|column:<col>)
 #   Generated + gitignored — every clone rebuilds it; never a merge surface.
 #
 # EXIT CODES
-#   0  generated, expansion measured (cache used or freshly refreshed)
-#   1  generated, but expansion UNMEASURED (no cache, --refresh-graph not
-#      given, or the refresh probe failed) — direct rails are still correct,
-#      transitive (via:) rows are simply absent; said loudly, not silently
-#   2  STOP — could not generate at all (no profile, no PM index, bad state)
+#   0  generated, expansion measured (cache used or freshly refreshed), or
+#      expansion not declared at all (neither PF_ARTEFACT_EXPAND nor
+#      PF_ARTEFACT_GRAPH_CACHE is set: printed as n/a, there is nothing to measure)
+#   1  generated, but a DECLARED expansion is UNMEASURED (no cache,
+#      --refresh-graph not given, or the refresh probe failed) — direct rails
+#      are still correct, transitive (via:) rows are simply absent; said
+#      loudly, not silently
+#   2  STOP — a declared input is unreadable, so the table was NOT generated:
+#      a PF_RAILS_EXTRA_CORPUS pattern that matches no file, or no usable
+#      severity marker
+#   3  DID NOT RUN — no profile, a bad argument, a required profile variable
+#      missing, the index file absent, or the output directory not writable.
+#      0 and 1 are results; 2 is a finding; 3 means nothing was attempted.
 #
 # USAGE
 #   rails-index.sh                    # (re)generate from the cached graph, or
@@ -55,6 +63,9 @@
 #   - MUST NOT write outside $TMPDIR and the declared output/cache paths.
 #   - MUST distinguish "measured and clean" from "could not measure" — see the
 #     UNMEASURED banner in the expansion phase.
+# Started by another shell (zsh, sh)? These scripts use bash-only expansions
+# (e.g. ${VAR:+-flag "$VAR"} word-splitting) — re-exec under bash, never degrade.
+[ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
 set -u
 
 # ── locate (verbatim copy of pm-preflight.sh's discovery block — the two
@@ -76,10 +87,10 @@ REFRESH_GRAPH=0
 
 while [ $# -gt 0 ]; do
   case "$1" in
-    --conf)           CONF="$2"; shift 2 ;;
+    --conf)           [ $# -ge 2 ] && [ -n "$2" ] || { echo "rails-index: --conf needs a value" >&2; exit 3; }; CONF="$2"; shift 2 ;;
     --refresh-graph)  REFRESH_GRAPH=1; shift ;;
-    -h|--help)        sed -n '2,45p' "$0"; exit 0 ;;
-    *) echo "rails-index: unknown arg '$1'" >&2; exit 64 ;;
+    -h|--help)        awk 'NR==1{next} /^#/{print;next} {exit}' "$0"; exit 0 ;;
+    *) echo "rails-index: unknown arg '$1'" >&2; exit 3 ;;
   esac
 done
 
@@ -100,15 +111,19 @@ if [ -z "$CONF" ]; then
   [ "$N" = 1 ] && CONF=$(find "$KIT_DIR" -maxdepth 1 -name '*.conf')
 fi
 
+if [ -n "$CONF" ] && [ ! -f "$CONF" ]; then
+  echo "rails-index: NOT RUN — --conf '$CONF' does not exist (a profile named explicitly is never replaced by discovery)." >&2
+  exit 3
+fi
 if [ -z "$CONF" ] || [ ! -f "$CONF" ]; then
-  echo "rails-index: STOP — no profile found (--conf, \$PM_PROFILE, a single claude-brain/pm-kit/profiles/*.conf, or a single kernel/*.conf). This kernel carries no project nouns of its own and cannot run without one." >&2
-  exit 2
+  echo "rails-index: NOT RUN — no profile found (--conf, \$PM_PROFILE, a single claude-brain/pm-kit/profiles/*.conf, or a single kernel/*.conf). This kernel carries no project nouns of its own and cannot run without one." >&2
+  exit 3
 fi
 
 # shellcheck disable=SC1090
 . "$CONF"
 
-: "${PM_INDEX_REL:=${PF_PM_INDEX:-}}"
+: "${INDEX_REL:=${PF_PM_INDEX:-}}"
 : "${EXTRA_CORPUS:=${PF_RAILS_EXTRA_CORPUS:-}}"
 : "${TABLE_RE:=${PF_ARTEFACT_TABLE_RE:-}}"
 # File-extension classifier. UNLIKE TABLE_RE this carries a DEFAULT — the list
@@ -118,10 +133,10 @@ fi
 # profile; the portable kernel stays free of house conventions.
 # ⚠️ Anchored with $ and matched against the whole candidate — keep it that way,
 # an unanchored variant would classify `foo.php.bak` as a file.
-# 🔴 `[.]`, PAS `\.` — cette valeur transite par `awk -v`, qui interprète les
-# séquences d'échappement de son argument : `\.` n'est pas un échappement awk
-# défini et se ferait manger en `.` (= n'importe quel caractère) selon
-# l'implémentation. `[.]` est strictement équivalent et immunisé.
+# Write `[.]`, NOT `\.`: this value travels through `awk -v`, which interprets the
+# escape sequences of its argument, and `\.` is not a defined awk escape, so some
+# implementations turn it into a bare `.` (any character). `[.]` is strictly
+# equivalent and immune.
 : "${FILE_RE:=${PF_ARTEFACT_FILE_RE:-[.](php|js|sh|css|sql|ts|py|md|json|yml|yaml)$}}"
 : "${SEVERITY_MARKERS:=${PF_SEVERITY_MARKERS:-}}"
 : "${TRUNC:=${PF_RAILS_TRUNCATE:-300}}"
@@ -130,36 +145,39 @@ fi
 : "${EXPAND_CMD:=${PF_ARTEFACT_EXPAND:-}}"
 : "${MAX_ITER:=${PF_ARTEFACT_EXPAND_MAX_ITER:-25}}"
 
-if [ -z "$PM_INDEX_REL" ]; then
-  echo "rails-index: STOP — profile '$CONF' does not define PF_PM_INDEX — nothing names the corpus to mine." >&2
-  exit 2
+if [ -z "$INDEX_REL" ]; then
+  echo "rails-index: NOT RUN — profile '$CONF' does not define PF_PM_INDEX — nothing names the corpus to mine." >&2
+  exit 3
 fi
 if [ -z "$TABLE_RE" ]; then
-  echo "rails-index: STOP — profile '$CONF' does not define PF_ARTEFACT_TABLE_RE." >&2
-  exit 2
+  echo "rails-index: NOT RUN — profile '$CONF' does not define PF_ARTEFACT_TABLE_RE." >&2
+  exit 3
 fi
 if [ -z "$SEVERITY_MARKERS" ]; then
-  echo "rails-index: STOP — profile '$CONF' does not define PF_SEVERITY_MARKERS." >&2
-  exit 2
+  echo "rails-index: NOT RUN — profile '$CONF' does not define PF_SEVERITY_MARKERS." >&2
+  exit 3
 fi
 if [ -z "$OUTPUT_REL" ]; then
-  echo "rails-index: STOP — profile '$CONF' does not define PF_RAILS_OUTPUT." >&2
-  exit 2
+  echo "rails-index: NOT RUN — profile '$CONF' does not define PF_RAILS_OUTPUT." >&2
+  exit 3
 fi
 
-cd "$REPO_ROOT" || { echo "rails-index: cannot cd $REPO_ROOT" >&2; exit 64; }
+cd "$REPO_ROOT" || { echo "rails-index: cannot cd $REPO_ROOT" >&2; exit 3; }
 
-PM_INDEX="$REPO_ROOT/$PM_INDEX_REL"
+INDEX_ABS="$REPO_ROOT/$INDEX_REL"
 OUTPUT="$REPO_ROOT/$OUTPUT_REL"
-GRAPH_CACHE="$REPO_ROOT/$GRAPH_CACHE_REL"
+# Empty stays EMPTY: "$REPO_ROOT/" is a directory, and `[ -s dir ]` is true — an
+# unconfigured cache used to read as a present one and print "MEASURED".
+GRAPH_CACHE=""
+[ -n "$GRAPH_CACHE_REL" ] && GRAPH_CACHE="$REPO_ROOT/$GRAPH_CACHE_REL"
 
-if [ ! -f "$PM_INDEX" ]; then
-  echo "rails-index: STOP — PF_PM_INDEX names '$PM_INDEX_REL', which does not exist at $PM_INDEX." >&2
-  exit 2
+if [ ! -f "$INDEX_ABS" ]; then
+  echo "rails-index: NOT RUN — PF_PM_INDEX names '$INDEX_REL', which does not exist at $INDEX_ABS." >&2
+  exit 3
 fi
 
-TMP="${TMPDIR:-/tmp}/rails-index.$$"
-mkdir -p "$TMP" || exit 64
+# mktemp -d: a predictable $TMPDIR/rails-index.$$ can be pre-created by someone else.
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/rails-index.XXXXXX")" || exit 3
 trap 'rm -rf "$TMP"' EXIT INT TERM
 
 # ── corpus list: the index, THEN every file PF_RAILS_EXTRA_CORPUS declares ───
@@ -177,7 +195,7 @@ trap 'rm -rf "$TMP"' EXIT INT TERM
 #    entire point is that silence must not read as coverage.
 CORPUS_LIST="$TMP/corpora.txt"
 : > "$CORPUS_LIST"
-printf '%s\n' "$PM_INDEX_REL" >> "$CORPUS_LIST"
+printf '%s\n' "$INDEX_REL" >> "$CORPUS_LIST"
 
 if [ -n "$EXTRA_CORPUS" ]; then
   printf '%s\n' "$EXTRA_CORPUS" | while IFS= read -r CL; do
@@ -186,18 +204,27 @@ if [ -n "$EXTRA_CORPUS" ]; then
     CL=$(printf '%s' "$CL" | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
     [ -z "$CL" ] && continue
     # glob expansion is deliberate (a profile may name a directory of
-    # registers); set -- keeps bash 3.2 happy, no arrays.
-    MATCHED=0
-    for P in $CL; do
-      if [ -f "$REPO_ROOT/$P" ]; then
-        printf '%s\n' "$P" >> "$CORPUS_LIST"
-        MATCHED=1
+    # registers). Each whitespace-separated PATTERN is resolved on its own:
+    # `set -f` keeps the list itself from expanding, `set +f` expands one
+    # pattern at a time — so a line naming two patterns where only one
+    # resolves still reports the other (a per-LINE flag let it vanish).
+    set -f
+    for PAT in $CL; do
+      set +f
+      MATCHED=0
+      for P in $PAT; do
+        if [ -f "$REPO_ROOT/$P" ]; then
+          printf '%s\n' "$P" >> "$CORPUS_LIST"
+          MATCHED=1
+        fi
+      done
+      set -f
+      if [ "$MATCHED" = 0 ]; then
+        printf 'rails-index: STOP — PF_RAILS_EXTRA_CORPUS names "%s", which matches no file under %s. A declared corpus that cannot be read must not silently shrink the index.\n' \
+          "$PAT" "$REPO_ROOT" >> "$TMP/corpus.err"
       fi
     done
-    if [ "$MATCHED" = 0 ]; then
-      printf 'rails-index: STOP — PF_RAILS_EXTRA_CORPUS names "%s", which matches no file under %s. A declared corpus that cannot be read must not silently shrink the index.\n' \
-        "$CL" "$REPO_ROOT" >> "$TMP/corpus.err"
-    fi
+    set +f
   done
 fi
 
@@ -233,6 +260,24 @@ function classify(c) {
   return ""
 }
 
+# cut_chars(s, n) — the first n characters of s, never ending inside a UTF-8
+# character. Under gawk in a UTF-8 locale substr() already counts characters; under
+# mawk or LC_ALL=C it counts BYTES, and a cut at byte n can leave the first bytes of
+# a multi-byte character, which is invalid UTF-8 in the output table. In byte mode
+# (detected by the length of the 4-byte badge) an incomplete trailing sequence is
+# dropped, so the cut lands on a character boundary in every awk and locale.
+function cut_chars(s, n,   cut, len, i, c, need) {
+  cut = substr(s, 1, n)
+  if (length(BADGE) == 1) return cut          # character mode: nothing to repair
+  len = length(cut); i = len
+  while (i > 0 && (substr(cut, i, 1) in CONTBYTE)) i--
+  if (i > 0 && (substr(cut, i, 1) in LEADLEN)) {
+    need = LEADLEN[substr(cut, i, 1)]
+    if (len - i + 1 < need) cut = substr(cut, 1, i - 1)
+  }
+  return cut
+}
+
 # head_prefix_ok(s) — TRUE iff s (everything in the record BEFORE a candidate
 # marker occurrence) reduces to nothing once leading whitespace, dashes,
 # asterisks (markdown bold-open) and a leading 🆕 badge are stripped, in any
@@ -245,14 +290,17 @@ function head_prefix_ok(s,   changed) {
     if (sub(/^[ \t]+/, "", s)) changed = 1
     if (sub(/^-+/,     "", s)) changed = 1
     if (sub(/^\*+/,    "", s)) changed = 1
-    if (substr(s, 1, 1) == "🆕") { s = substr(s, 2); changed = 1 }
+    # index()/length() on the SAME byte string in whichever mode this awk runs
+    # (chars under gawk+UTF-8, bytes under mawk / LC_ALL=C): comparing
+    # substr(s,1,1) to a 4-byte badge only works in char mode.
+    if (index(s, BADGE) == 1) { s = substr(s, length(BADGE) + 1); changed = 1 }
   }
   return (s == "")
 }
 
 # tag_markers(buf) — 2026-08-19 ruling: severity binds to the HEAD marker of a
 # fragment, never to an inline occurrence. Measured that day: 780 `⛔` sat
-# INLINE in house prose ("⛔ jamais X" = emphasis, not a classification) and
+# INLINE in house prose ("⛔ never X" = emphasis, not a classification) and
 # the OLD unconditional gsub (any marker, anywhere, splits+reclassifies)
 # turned every one of them into a fresh STOP fragment — P8 saturated (11
 # blocking on a single touched file) on records whose AUTHOR never wrote a
@@ -280,7 +328,7 @@ function tag_markers(buf,   out, rest, mstart, mlen, mtext, prefix, before, lvl)
     if (head_prefix_ok(before)) {
       lvl = levelOf[mtext]
       out = out prefix "\001" lvl "\002"
-    } else if (length(before) >= 3 && substr(before, length(before) - 2) == " · ") {
+    } else if (length(before) >= length(SEP) && substr(before, length(before) - length(SEP) + 1) == SEP) {
       lvl = levelOf[mtext]
       out = out prefix "\001" lvl "\002"
     } else {
@@ -345,7 +393,7 @@ function process_record(buf, head_fnr,
         rec_rows++
         rtext = txt
         gsub(/\t/, " ", rtext)
-        if (length(rtext) > TRUNC) rtext = substr(rtext, 1, TRUNC) "…"
+        if (length(rtext) > TRUNC) rtext = cut_chars(rtext, TRUNC) "…"
         printf "%s\t%s\t%s\t%s#%d\tdirect\n", content, lvl, rtext, SRC, head_fnr
         total_rows++
 
@@ -364,7 +412,7 @@ function process_record(buf, head_fnr,
           dot = index(content, ".")
           parent = substr(content, 1, dot - 1)
           if (parent ~ TABLE_RE) {
-            printf "%s\t%s\t%s\t%s#%d\tcolonne:%s\n", parent, lvl, rtext, SRC, head_fnr, content
+            printf "%s\t%s\t%s\t%s#%d\tcolumn:%s\n", parent, lvl, rtext, SRC, head_fnr, content
             total_rows++
             parent_rows++
             rec_rows++
@@ -401,6 +449,15 @@ function process_record(buf, head_fnr,
 }
 
 BEGIN {
+  # Multi-byte literals are measured with length(), never assumed to be 1 / 3
+  # "characters": the same file must classify identically under gawk UTF-8,
+  # mawk and LC_ALL=C (a rail was STOP under one and INFO under another).
+  BADGE = "🆕"
+  SEP = " · "
+  for (b = 128; b < 192; b++) CONTBYTE[sprintf("%c", b)] = 1
+  for (b = 192; b < 224; b++) LEADLEN[sprintf("%c", b)] = 2
+  for (b = 224; b < 240; b++) LEADLEN[sprintf("%c", b)] = 3
+  for (b = 240; b < 248; b++) LEADLEN[sprintf("%c", b)] = 4
   nmarkers = 0
   MARKRE = ""
   while ((getline mline < MARKFILE) > 0) {
@@ -476,14 +533,17 @@ BASE_ROWS=$(wc -l < "$TMP/base.tsv" | tr -d ' ')
 
 # ══ PHASE 2 — EXPANSION (transitive view closure) ══════════════════════════
 EXPANSION_MEASURED=0
+EXPANSION_DECLARED=1
 INHERITED_ROWS=0
 : > "$TMP/inherited.tsv"
 
 if [ "$REFRESH_GRAPH" = 1 ]; then
   if [ -z "$EXPAND_CMD" ]; then
     echo "rails-index: WARN — --refresh-graph given but profile defines no PF_ARTEFACT_EXPAND. Expansion UNMEASURED." >&2
+  elif [ -z "$GRAPH_CACHE" ]; then
+    echo "rails-index: WARN — --refresh-graph given but profile defines no PF_ARTEFACT_GRAPH_CACHE to store it in. Expansion UNMEASURED." >&2
   else
-    mkdir -p "$(dirname "$GRAPH_CACHE")" || exit 64
+    mkdir -p "$(dirname "$GRAPH_CACHE")" || exit 3
     if GRAPH_OUT=$(eval "$EXPAND_CMD" 2>"$TMP/graph.err") && [ -n "$GRAPH_OUT" ]; then
       printf '%s\n' "$GRAPH_OUT" > "$GRAPH_CACHE"
       echo "rails-index: refreshed graph cache — $(wc -l < "$GRAPH_CACHE" | tr -d ' ') edge(s) → $GRAPH_CACHE_REL" >&2
@@ -495,7 +555,7 @@ if [ "$REFRESH_GRAPH" = 1 ]; then
   fi
 fi
 
-if [ -s "$GRAPH_CACHE" ]; then
+if [ -n "$GRAPH_CACHE" ] && [ -f "$GRAPH_CACHE" ] && [ -s "$GRAPH_CACHE" ]; then
   cat > "$TMP/expand.awk" << 'AWK_EOF'
 BEGIN {
   FS = "\t"
@@ -555,19 +615,30 @@ AWK_EOF
   awk -v GRAPHFILE="$GRAPH_CACHE" -v MAXITER="$MAX_ITER" -f "$TMP/expand.awk" "$TMP/base.tsv" \
       > "$TMP/inherited.tsv" 2> "$TMP/expand.stats"
   cat "$TMP/expand.stats" >&2
-  EXPANSION_MEASURED=1
   INHERITED_ROWS=$(wc -l < "$TMP/inherited.tsv" | tr -d ' ')
-else
+  # A cache that yields no edge is not a measured graph: every table rail
+  # would silently stop at the table. "edges=0" is UNMEASURED, never MEASURED.
+  NEDGES=$(sed -n 's/^EXPAND-STATS.*edges=\([0-9][0-9]*\).*/\1/p' "$TMP/expand.stats" | tail -1)
+  if [ "${NEDGES:-0}" -gt 0 ]; then
+    EXPANSION_MEASURED=1
+  else
+    printf '\n\033[33m● UNMEASURED — the graph cache at %s holds 0 usable edges.\033[0m\n\n' "$GRAPH_CACHE_REL" >&2
+  fi
+elif [ -n "$EXPAND_CMD" ] || [ -n "$GRAPH_CACHE_REL" ]; then
+  # Declared, but nothing to read: a measurement that did not happen.
   printf '\n'
-  printf '\033[33m● UNMEASURED — no artefact-graph cache at %s and --refresh-graph not given.\033[0m\n' "$GRAPH_CACHE_REL" >&2
+  if [ -n "$GRAPH_CACHE_REL" ]; then CACHE_WHERE=" at $GRAPH_CACHE_REL"; else CACHE_WHERE=" (PF_ARTEFACT_GRAPH_CACHE is not set)"; fi
+  printf '\033[33m● UNMEASURED — no artefact-graph cache%s and --refresh-graph not given.\033[0m\n' "$CACHE_WHERE" >&2
   printf '  Writing DIRECT rails only. A rail posed on a TABLE will NOT propagate to the\n' >&2
   printf '  views that read it — transitive (via:) rows are absent, not zero-by-fact.\n' >&2
   printf '  Re-run with --refresh-graph to compute them.\n' >&2
   printf '\n' >&2
+else
+  EXPANSION_DECLARED=0
 fi
 
 # ══ WRITE OUTPUT (atomic) ═══════════════════════════════════════════════════
-mkdir -p "$(dirname "$OUTPUT")" || exit 64
+mkdir -p "$(dirname "$OUTPUT")" || exit 3
 sort -t "$(printf '\t')" -k1,1 -k2,2 "$TMP/base.tsv" "$TMP/inherited.tsv" > "$TMP/final.tsv"
 mv "$TMP/final.tsv" "$OUTPUT"
 
@@ -582,7 +653,10 @@ printf '  distinct artefacts   : %s\n' "$DISTINCT_ARTEFACTS"
 if [ "$EXPANSION_MEASURED" = 1 ]; then
   printf '  expansion            : MEASURED (graph cache %s)\n' "$GRAPH_CACHE_REL"
   exit 0
+elif [ "$EXPANSION_DECLARED" = 0 ]; then
+  printf '  expansion            : n/a (no view graph declared: PF_ARTEFACT_EXPAND and PF_ARTEFACT_GRAPH_CACHE are unset)\n'
+  exit 0
 else
-  printf '  expansion            : \033[33mUNMEASURED\033[0m (no cache — run --refresh-graph)\n'
+  printf '  expansion            : \033[33mUNMEASURED\033[0m (no usable graph cache — run --refresh-graph)\n'
   exit 1
 fi

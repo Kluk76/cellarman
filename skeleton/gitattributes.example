@@ -1,0 +1,20 @@
+# gitattributes.example — copy into <repo>/.gitattributes (append if one exists).
+#
+# merge=union: on a merge or rebase conflict, keep BOTH sides' lines instead of
+# raising a conflict. That is correct ONLY for a file that is, by construction,
+# an append-only log where every line stands alone and order carries no
+# meaning. Hence the claims file and nothing else:
+#
+#   - OWNERSHIP.map is edited in place (a lane is changed, moved, removed);
+#     union would concatenate two edits of the same lane into a line neither
+#     side wrote. Its conflicts need a human.
+#   - The handoff register is prose with per-item headers; union can duplicate
+#     or interleave an item's body.
+#   - Memory index and topic files are prose; union produces unreadable hybrids.
+#   - Code and config: two edits to the same region must be reconciled by a
+#     human; a silent concatenation compiles often enough to ship.
+#
+# Union DUPLICATES where it should conflict (a row present on both sides can
+# appear twice). The claims lint warns on duplicate fields 1..4 for that
+# reason; run `lint-claims-session.sh --dupes` for a census.
+claude-brain/CLAIMS.tsv    merge=union

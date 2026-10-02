@@ -1,0 +1,61 @@
+{
+  "$schema": "https://json.schemastore.org/claude-code-settings.json",
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/pm-consult-nudge.sh",
+            "args": ["acme-pm"],
+            "timeout": 5
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/claude-brain/pm-kit/load-telemetry.sh",
+            "args": [],
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "${CLAUDE_PROJECT_DIR}/claude-brain/pm-kit/kernel/session-ledger.sh",
+            "args": [],
+            "timeout": 5
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "if": "Bash(git commit *)",
+            "command": "${CLAUDE_PROJECT_DIR}/claude-brain/pm-sync.sh",
+            "args": [],
+            "timeout": 60
+          },
+          {
+            "type": "command",
+            "if": "Bash(git push *)",
+            "command": "${CLAUDE_PROJECT_DIR}/claude-brain/pm-sync.sh",
+            "args": [],
+            "timeout": 60
+          }
+        ]
+      }
+    ]
+  }
+}
