@@ -573,6 +573,19 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths src/billing.php; 
 { has 'ok   ownership.*within the acting dev' "$OUTT"; }; check A12 "ACME_DEV set: the lane verdict is given" $?
 
 ###############################################################################
+# (a) pre-flight side — always-checked paths go to the lint as claim-exempt
+###############################################################################
+mk_proj pcb remote
+prof_set PF_ALWAYS_PATHS '"claude-brain/CLAIMS.tsv"'
+printf 'own a logic src/*\nown a ops claude-brain/*\n' > claude-brain/OWNERSHIP.map; mkdir -p src
+printf 'open\t%s\tb\tgov-edit\tclaude-brain/*\tnote\ts-bbbbbbbb\n' "$(date -u +%F)" > claude-brain/CLAIMS.tsv
+commit_all "claim fixture"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths src/billing.php; strip
+{ lacks 'STOP ownership' "$OUTT"; }; check claim-exempt "another dev's claim over an always-checked path does not STOP an unrelated build (rc=$RC)" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths claude-brain/other.md; strip
+{ [ "$RC" = 2 ] && has 'STOP ownership' "$OUTT"; }; check claim-exempt "the same claim still STOPs a build that really touches the surface (rc=$RC)" $?
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

@@ -550,7 +550,11 @@ else
     if [ -z "$ACTING_DEV" ]; then
       warn ownership "\$$DEV_ENV_VAR is unset — the acting dev is unknown, so lanes CANNOT be judged (ownership NOT measured). Export it, or run ownership-lint.sh --dev <id>."
     else
-    "$KIT_DIR/ownership-lint.sh" --map "$OWNERSHIP_MAP" --quiet "${TOUCH_ARR[@]}"
+    # The always-checked paths are a governance surface every session READS, never
+    # its own build: a claim held over one of them must not STOP an unrelated
+    # build, so they go to the lint as --claim-exempt (the LANE check still
+    # applies to them). Empty PF_ALWAYS_PATHS => the call is exactly as before.
+    "$KIT_DIR/ownership-lint.sh" --map "$OWNERSHIP_MAP" --quiet ${ALWAYS_PATHS:+--claim-exempt "$ALWAYS_PATHS"} "${TOUCH_ARR[@]}"
     case $? in
       0) ok ownership "all touched paths are within the acting dev's lane" ;;
       1) warn ownership "touched path(s) in a shared, contested or unmapped lane (or a ratified crossing) — run ownership-lint.sh for the list" ;;
