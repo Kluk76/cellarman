@@ -214,6 +214,26 @@ run bash "$KITREL/catalog.sh" --grep tailword
 { ! has 'tailword'; }; check cat-c "the shortened display does not carry the tail" $?
 rm -f "$MEMDIR/many-triggers.md"
 
+# C5.7 a trigger wrapped over several `>` lines: the continuation is harvested, nothing else
+mk_proj c57 remote
+{ printf '# Wrapped trigger\n\n> earlierquote plain quote\n\n'
+  printf '> Trigger: wrapfirst\n> contwordone\n>\n> contwordtwo\n\n'
+  printf '> laterquote unrelated\n\ntext after\n'; } > "$MEMDIR/wrapped.md"
+run bash "$KITREL/catalog.sh" --grep wrapfirst
+{ [ "$RC" = 0 ] && has 'wrapped.md'; }; check C5.7 "the trigger line itself is still harvested (rc=$RC)" $?
+run bash "$KITREL/catalog.sh" --grep contwordtwo
+{ [ "$RC" = 0 ] && has 'wrapped.md'; }; check C5.7 "a continuation line that does not say 'trigger' is searchable (rc=$RC)" $?
+run bash "$KITREL/catalog.sh" --grep 'earlierquote|laterquote'
+{ ! has 'wrapped.md'; }; check C5.7 "RED control: blockquotes before and after the run are not harvested" $?
+# C5.8 a `>` line glued under a trigger is not always its continuation
+{ printf '# Glued\n\n> Trigger "gluedfirst"/"gluedsecond".\n> afterdotword ratified by somebody\n\n'
+  printf '> Trigger openline gluedthird /\n> gluedfourth\n> 📌 **Build log:** pinnedword\n\n'
+  printf '> Trigger openagain\n> **Label:** boldword\n'; } > "$MEMDIR/glued.md"
+run bash "$KITREL/catalog.sh" --grep gluedfourth
+{ [ "$RC" = 0 ] && has 'glued.md'; }; check C5.8 "a continuation under an open trigger line is still harvested (rc=$RC)" $?
+run bash "$KITREL/catalog.sh" --grep 'afterdotword|pinnedword|boldword'
+{ ! has 'glued.md'; }; check C5.8 "a line after a finished sentence, an emoji label and a bold label are not harvested" $?
+
 ###############################################################################
 # B1 — doctor sizes without `find -printf`; a missing tool is UNMEASURED, not ok
 ###############################################################################
@@ -231,6 +251,18 @@ mk_toolpath "$SB/nofind" $(for t in $COMMON_TOOLS; do [ "$t" = find ] || printf 
 run env PATH="$SB/nofind" "$(command -v bash)" "$KITREL/doctor.sh"
 { has "check (6) UNMEASURED — required tool 'find'" && lacks 'no topic file over'; }; check B1 "a missing find is UNMEASURED, never 'ok — no topic file over' (rc=$RC)" $?
 rm -rf "$MEMDIR/big-topic.md" "$MEMDIR/index-relocated-detail"
+
+# D4.9 a find that is PRESENT but FAILS: checks 6 and 7 say UNMEASURED, never ok
+mk_proj d49 remote
+mkdir -p "$SB/failfind" "$MEMDIR/index-relocated-detail"
+printf '#!/bin/sh\necho "find: simulated failure" >&2\nexit 1\n' > "$SB/failfind/find"; chmod +x "$SB/failfind/find"
+printf 'x\n' > "$MEMDIR/index-relocated-detail/index-verbatim-1.md"
+run env PATH="$SB/failfind:$PATH" bash "$KITREL/doctor.sh"
+{ has 'topic-file size check (6) UNMEASURED — find failed (exit 1)' && lacks 'ok   — no topic file over'; }; check D4.9 "check 6: a failing find is UNMEASURED, never 'ok — no topic file over' (rc=$RC)" $?
+{ has 'archive retention check (7) UNMEASURED — find failed (exit 1)' && lacks 'ok   — archived snapshots'; }; check D4.9 "check 7: a failing find is UNMEASURED, never 'ok — archived snapshots' (rc=$RC)" $?
+run bash "$KITREL/doctor.sh"
+{ has 'ok   — no topic file over' && has 'ok   — archived snapshots: 1'; }; check D4.9 "RED control: with the real find both checks still measure and say ok" $?
+rm -rf "$MEMDIR/index-relocated-detail"
 
 ###############################################################################
 # B2 — agent-copy drift by content compare, no md5sum on the machine
@@ -271,9 +303,12 @@ cat >> "$INDEX" <<'EOF'
 - ⛔ never edit `app/db.php` by hand · 🔴 `ref_users` is read by two views · ⛔ `fin_ledger.amount` is sealed
 - 🆕 ⛔ badge-led rail on `scripts/deploy.sh`
 EOF
+# the ruling badge is U+2696 U+FE0F, written as bytes so no editor can drop the variation selector
+RULING="$(printf '\342\232\226\357\270\217')"
+printf -- '- 🆕%s🔴 ruling-badged warn rail on `app/ruling.php`\n- %s⛔ ruling then stop rail on `app/ruling2.php`\n' "$RULING" "$RULING" >> "$INDEX"
 sev() { awk -F'\t' -v a="$1" '$1==a {print $2; exit}' "$PROJ/$KITREL/state/RAILS-BY-ARTEFACT.tsv"; }
-sevline() { printf 'db.php=%s ref_users=%s fin_ledger.amount=%s deploy.sh=%s' "$(sev app/db.php)" "$(sev ref_users)" "$(sev fin_ledger.amount)" "$(sev scripts/deploy.sh)"; }
-EXPECT_SEV='db.php=STOP ref_users=WARN fin_ledger.amount=STOP deploy.sh=STOP'
+sevline() { printf 'db.php=%s ref_users=%s fin_ledger.amount=%s deploy.sh=%s ruling=%s ruling2=%s' "$(sev app/db.php)" "$(sev ref_users)" "$(sev fin_ledger.amount)" "$(sev scripts/deploy.sh)" "$(sev app/ruling.php)" "$(sev app/ruling2.php)"; }
+EXPECT_SEV='db.php=STOP ref_users=WARN fin_ledger.amount=STOP deploy.sh=STOP ruling=WARN ruling2=STOP'
 locale -a > "$SB/locales.txt" 2>/dev/null
 UTF8_LOC=""; for l in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do grep -qx "$l" "$SB/locales.txt" && { UTF8_LOC="$l"; break; }; done
 AWKSHIM="$SB/awkshim"; mkdir -p "$AWKSHIM"
@@ -1091,7 +1126,7 @@ cd "$PROJ" 2>/dev/null || true
 ###############################################################################
 cd "$C" || exit 64
 V="$(tr -d ' \n' < VERSION)"
-{ [ "$V" = 0.2.0 ]; }; check 16 "VERSION is 0.2.0 (got '$V')" $?
+{ [ "$V" = 0.2.1 ]; }; check 16 "VERSION is 0.2.1 (got '$V')" $?
 { grep -q "^## \[$V\] - " CHANGELOG.md && ! grep -q '^## \[Unreleased\]' CHANGELOG.md; }; check 16 "CHANGELOG has a dated entry for the VERSION and no Unreleased section" $?
 for w in 'Exit code 3 means' 'past `PF_ARB_STOP_DAYS` are an ambient WARN' 'does not push unless asked' 'ambient' 'Solo mode'; do
   grep -qF "$w" CHANGELOG.md; check 16 "CHANGELOG 'Behaviour changes' mentions: $w" $?
