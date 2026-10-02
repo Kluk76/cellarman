@@ -58,6 +58,7 @@
 # ENVIRONMENT
 #   PM_SYNC_MSG           commit message override
 #   PM_SYNC_NO_DOCTOR=1   skip the advisory doctor call at the end
+#   PM_SYNC_NO_FLOCK=1    use the mkdir lock even where flock exists (testing)
 #   PM_KIT_CONF           alternative path of pm-kit.conf
 set +e
 [ -n "${BASH_VERSION:-}" ] || exec bash "$0" "$@"
@@ -193,27 +194,37 @@ fi
 LOCKFILE="$COMMON_DIR/pm-sync.lock"
 LOCKDIR="$COMMON_DIR/pm-sync.lock.d"
 _release_lock() { rm -rf "$LOCKDIR" 2>/dev/null; }
-if command -v flock >/dev/null 2>&1; then
-    exec 9>"$LOCKFILE" 2>/dev/null
-    if ! flock -n 9 2>/dev/null; then
-        echo "[pm-sync] lock held by another session — stepping aside, its pass will do the work"
-        exit 0
+if [ -z "${PM_SYNC_NO_FLOCK:-}" ] && command -v flock >/dev/null 2>&1; then
+    # The 2>/dev/null must wrap the exec in a group: written on the exec itself
+    # it would redirect this shell's stderr for the rest of the script and
+    # swallow every later message, including the push refusal.
+    if { exec 9>"$LOCKFILE"; } 2>/dev/null; then
+        if ! flock -n 9 2>/dev/null; then
+            echo "[pm-sync] lock held by another session — stepping aside, its pass will do the work"
+            exit 0
+        fi
+    else
+        echo "[pm-sync] cannot open $LOCKFILE — continuing WITHOUT a lock" >&2
     fi
 else
     # No flock(1) (macOS): mkdir is atomic. A stale lock (owner pid gone) is
     # reclaimed once; the reclaim itself is not race-free, which is acceptable
     # for a hook that only ever loses a pass, never data.
-    if ! mkdir "$LOCKDIR" 2>/dev/null; then
+    GOT_LOCK=0
+    if mkdir "$LOCKDIR" 2>/dev/null; then
+        GOT_LOCK=1
+    else
         OWNER="$(cat "$LOCKDIR/pid" 2>/dev/null)"
         if [ -n "$OWNER" ] && ! kill -0 "$OWNER" 2>/dev/null; then
             rm -rf "$LOCKDIR" 2>/dev/null
-            mkdir "$LOCKDIR" 2>/dev/null
+            mkdir "$LOCKDIR" 2>/dev/null && GOT_LOCK=1
         fi
     fi
-    if [ ! -d "$LOCKDIR" ] || ! printf '%s\n' "$$" > "$LOCKDIR/pid" 2>/dev/null; then
+    if [ "$GOT_LOCK" -ne 1 ]; then
         echo "[pm-sync] lock held by another session — stepping aside, its pass will do the work"
         exit 0
     fi
+    printf '%s\n' "$$" > "$LOCKDIR/pid" 2>/dev/null
     trap _release_lock EXIT
 fi
 
