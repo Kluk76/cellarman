@@ -562,6 +562,17 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 git mv "src/frozen file.php" src/old2.php
 
 ###############################################################################
+# A12 — an unset dev variable gets its own message, not "SHARED lane"
+###############################################################################
+mk_proj pa12 remote
+prof_set PF_ALWAYS_PATHS '""'
+printf 'own a logic src/*\n' > claude-brain/OWNERSHIP.map; mkdir -p src; printf '# state\topened\tdev\tslug\tglobs\tnote\tsession\n' > claude-brain/CLAIMS.tsv
+run env -u ACME_DEV bash bin/pm-preflight.sh --no-fetch --paths src/billing.php; strip
+{ has 'WARN ownership.*ACME_DEV is unset.*CANNOT be judged' "$OUTT" && lacks 'SHARED' "$OUTT"; }; check A12 "ACME_DEV unset: named as such, not as a shared lane" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths src/billing.php; strip
+{ has 'ok   ownership.*within the acting dev' "$OUTT"; }; check A12 "ACME_DEV set: the lane verdict is given" $?
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

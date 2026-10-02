@@ -543,13 +543,21 @@ else
   if [ ${#TOUCH_ARR[@]} -eq 0 ]; then
     ok ownership "no touched paths given and worktree clean"
   else
+    # The lint cannot judge a lane without knowing WHO is acting, and it answers
+    # "cannot judge" with the same rc=1 as a shared lane. Say the real cause here,
+    # before running it, instead of mapping that rc to a lane claim it never made.
+    eval "ACTING_DEV=\"\${${DEV_ENV_VAR}:-}\""
+    if [ -z "$ACTING_DEV" ]; then
+      warn ownership "\$$DEV_ENV_VAR is unset — the acting dev is unknown, so lanes CANNOT be judged (ownership NOT measured). Export it, or run ownership-lint.sh --dev <id>."
+    else
     "$KIT_DIR/ownership-lint.sh" --map "$OWNERSHIP_MAP" --quiet "${TOUCH_ARR[@]}"
     case $? in
       0) ok ownership "all touched paths are within the acting dev's lane" ;;
-      1) warn ownership "touched path(s) in a SHARED lane — run ownership-lint.sh for the list" ;;
+      1) warn ownership "touched path(s) in a shared, contested or unmapped lane (or a ratified crossing) — run ownership-lint.sh for the list" ;;
       2) stop ownership "touched path(s) in the OTHER dev's lane or a FROZEN lane — see ownership-lint.sh" ;;
       *) warn ownership "ownership-lint.sh unavailable or errored" ;;
     esac
+    fi
   fi
 fi
 
