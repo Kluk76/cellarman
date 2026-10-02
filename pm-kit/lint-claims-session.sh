@@ -34,7 +34,9 @@
 #   options:  --conf <profile>   --claims <repo-relative path>
 #
 # EXIT CODES   0 clean (warnings allowed) · 1 refused (or self-test failed) ·
-#              2 not measured (no claims path could be resolved).
+#              3 did not run (no repository, no claims path, bad argument, no
+#              temp dir): nothing was checked. 3 is the kit-wide code for
+#              "did not run"; a hook must treat it as a failure, never a pass.
 #
 # PROFILE VARIABLES
 #   PF_CLAIMS_FILE         claims file, repo-relative (or --claims)
@@ -48,7 +50,7 @@ KIT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")" && pwd)"
 TMP=""
 cleanup() { [ -n "$TMP" ] && rm -rf "$TMP" 2>/dev/null; return 0; }
 trap cleanup EXIT INT TERM
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/lint-claims-session.XXXXXX")" || { echo "lint-claims-session: cannot create a temp dir" >&2; exit 2; }
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/lint-claims-session.XXXXXX")" || { echo "lint-claims-session: cannot create a temp dir" >&2; exit 3; }
 
 LIVE_STATES="open restated"
 
@@ -202,37 +204,37 @@ fi
 
 # ── resolve repo, profile, claims path ───────────────────────────────────────
 # shellcheck disable=SC1091
-. "$KIT_DIR/kernel/profile-lib.sh" || exit 2
+. "$KIT_DIR/kernel/profile-lib.sh" || exit 3
 
 CONF_ARG=""; CLAIMS_REL=""; MODE="gate"
 while [ $# -gt 0 ]; do
   case "$1" in
     --dupes)  MODE="dupes"; shift ;;
-    --conf)   [ $# -ge 2 ] || { echo "lint-claims-session: --conf needs a value" >&2; exit 2; }; CONF_ARG="$2"; shift 2 ;;
-    --claims) [ $# -ge 2 ] || { echo "lint-claims-session: --claims needs a value" >&2; exit 2; }; CLAIMS_REL="$2"; shift 2 ;;
+    --conf)   [ $# -ge 2 ] || { echo "lint-claims-session: --conf needs a value" >&2; exit 3; }; CONF_ARG="$2"; shift 2 ;;
+    --claims) [ $# -ge 2 ] || { echo "lint-claims-session: --claims needs a value" >&2; exit 3; }; CLAIMS_REL="$2"; shift 2 ;;
     -h|--help) sed -n '2,/^set -u$/p' "$0" | grep -E '^#( |$)' | sed -E 's/^# ?//'; exit 0 ;;
-    *) echo "lint-claims-session: unknown argument '$1'" >&2; exit 2 ;;
+    *) echo "lint-claims-session: unknown argument '$1'" >&2; exit 3 ;;
   esac
 done
 
 if ! pm_repo_root; then
   echo "lint-claims-session: NOT MEASURED — not inside a git repository and PM_REPO_ROOT is not set" >&2
-  exit 2
+  exit 3
 fi
 
 if [ -n "$CONF_ARG" ] && [ ! -f "$CONF_ARG" ]; then
   echo "lint-claims-session: NOT MEASURED — --conf '$CONF_ARG' does not exist" >&2
-  exit 2
+  exit 3
 fi
 if pm_find_profile "$CONF_ARG"; then
   # shellcheck disable=SC1090
-  . "$CONF" || { echo "lint-claims-session: NOT MEASURED — cannot source $CONF" >&2; exit 2; }
+  . "$CONF" || { echo "lint-claims-session: NOT MEASURED — cannot source $CONF" >&2; exit 3; }
   [ -n "$CLAIMS_REL" ] || CLAIMS_REL="${PF_CLAIMS_FILE:-}"
   LIVE_STATES="${PF_CLAIM_LIVE_STATES:-$LIVE_STATES}"
 fi
 if [ -z "$CLAIMS_REL" ]; then
   echo "lint-claims-session: NOT MEASURED — no claims path (set PF_CLAIMS_FILE in the profile, or pass --claims)" >&2
-  exit 2
+  exit 3
 fi
 CLAIMS_REL="${CLAIMS_REL#"$REPO_ROOT"/}"
 CLAIMS_ABS="$REPO_ROOT/$CLAIMS_REL"

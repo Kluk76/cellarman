@@ -337,7 +337,7 @@ check "hook lets an unrelated commit through" 0 "$rc"
 # unresolved config must be 'not measured', never a pass
 mkdir -p "$SB/bare"; git -C "$SB/bare" init -q
 (cd "$SB/bare" && bash "$ROOT/pm-kit/lint-claims-session.sh") > "$SB/nc" 2>&1; rc=$?
-check "lint with no claims path configured: rc 2 (not measured)" 2 "$rc"
+check "lint with no claims path configured: rc 3 (did not run)" 3 "$rc"
 contains "lint says NOT MEASURED" "$SB/nc" "NOT MEASURED"
 
 echo
