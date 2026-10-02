@@ -96,7 +96,7 @@ Read these before upgrading an existing install.
   the example profile or `pm-kit.conf.example` and the scripts disagree),
   `tests/ports.sh` (sync, ledger, claims) and `tests/smoke.sh` (the audited defects,
   each with a case that fails without its fix). CI runs them on ubuntu and macOS, and
-  again under mawk with `LC_ALL=C`; shellcheck runs non-blocking.
+  again under mawk with `LC_ALL=C`; shellcheck runs and blocks (clean at 0.9.0, policy in `.shellcheckrc`).
 - Doctor checks: tokens against bindings rows, kernel block against `PROTOCOL.md`,
   placeholder, hook wiring in `.claude/settings.json` (info only), rails written
   outside list items, one index in two configs.
@@ -157,6 +157,7 @@ Read these before upgrading an existing install.
 
 ### Fixed
 
+- **shellcheck-clean.** `ls | wc` / `ls | while` in `pm-preflight.sh` replaced by glob loops (same output, safe with odd file names); `tr A-Z a-z` became `tr [:upper:] [:lower:]`; unused variables dropped; an unquoted `"$MEM_BASE"` regex fragment in `doctor.sh` is now one quoted string. `.shellcheckrc` lists the four measured false-positive classes.
 - **bash 3.2 / macOS: three latent defects.** `pm-preflight.sh` wrote `$FMTIDS— closure…`; bash 3.2 reads the first byte of the dash as part of the variable name, so the "headers outside the closure vocabulary" warning died with `unbound variable` (now `${FMTIDS}`). `init.sh` validated `--name` / `--dev` with glob ranges (`[a-z]`), which follow collation order in a UTF-8 locale and accept uppercase on macOS (now explicit letters); the agent-id check in `pm-report-back-gate.sh` had the same shape. `init.sh` also compared a logical `pwd` with `git rev-parse --show-toplevel`, which differ under `/var` -> `/private/var` (now `pwd -P`). Two new smoke cases guard the first two.
 - **`doctor.sh` register-router findings on macOS.** BSD `sed` does not read `\t` in a pattern (it matches a literal "t"), so the DIVERGENT / BODY-WITHOUT-ROUTER / ROUTER-WITHOUT-BODY / OFF-VOCABULARY detail lines were mangled there. They now use a real TAB character.
 

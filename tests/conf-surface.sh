@@ -94,7 +94,7 @@ surface() {
     done
     [ "$found" = 1 ] || { echo "UNDOCUMENTED $t   ($label)"; bad=1; }
   done < "$T/names"
-  echo "$(wc -l < "$T/assigned" | tr -d ' ')" > "$T/n.$label"
+  wc -l < "$T/assigned" | tr -d ' ' > "$T/n.$label"
 }
 
 # Profile readers (doctor.sh contributes only the names it asks for with `_prof`).

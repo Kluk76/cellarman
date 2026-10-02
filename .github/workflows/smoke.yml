@@ -90,9 +90,8 @@ jobs:
         run: bash tests/quickstart.sh
 
   shellcheck:
-    name: shellcheck (non-blocking)
+    name: shellcheck
     runs-on: ubuntu-latest
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
       - name: shellcheck

@@ -1,0 +1,19 @@
+# Repo-wide shellcheck policy. Every code below is a measured false-positive
+# class in this kit; real findings are fixed in the scripts, not listed here.
+
+# SC2016: single quotes around awk/sed programs and fixture text hold a literal
+# $ on purpose (awk fields, regex anchors, text that must not expand).
+disable=SC2016
+
+# SC2119/SC2120: tests/ helpers (strip, ...) take an optional argument that
+# defaults to the last output; calling them bare is the intended use.
+disable=SC2119,SC2120
+
+# SC2317: functions in the test suites are invoked indirectly (run tmo ...,
+# trap handlers, mk_* helpers); shellcheck cannot see the call and calls the
+# body unreachable.
+disable=SC2317
+
+# SC2015: `[ guard ] && [ guard2 ] || { die; }` is the guard idiom used for
+# argument and precondition checks; the right-hand side never fails.
+disable=SC2015

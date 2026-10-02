@@ -76,6 +76,7 @@ fi
 # _prof <VAR>: one profile value, read in a subshell (never leaks into this scope).
 _prof() {
     [ -n "$_PROFILE_FILE" ] || return 0
+    # shellcheck source=/dev/null
     ( . "$_PROFILE_FILE" >/dev/null 2>&1; eval "printf '%s' \"\${$1:-}\"" )
 }
 ARB_CLOSED_RE="$(_prof PF_ARB_CLOSED_RE)"
@@ -146,7 +147,7 @@ else
     DANGLING=""
     while IFS= read -r rel; do
         [ -e "$INDEX_DIR/$rel" ] || DANGLING="${DANGLING}    $rel"$'\n'
-    done < <(grep -o "]("$MEM_BASE"/[^)]*)" "$PM_INDEX" | sed 's/^](//; s/)$//' | sed 's/#.*$//' | sort -u)
+    done < <(grep -o "](${MEM_BASE}/[^)]*)" "$PM_INDEX" | sed 's/^](//; s/)$//' | sed 's/#.*$//' | sort -u)
     if [ -n "$DANGLING" ]; then
         fail "index links to missing topic files:"
         printf '%s' "$DANGLING"

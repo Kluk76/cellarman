@@ -203,7 +203,7 @@ if [ "$REFRESH" = 1 ]; then
   HDR="# lane	declared"
   for D in $DEVS; do HDR="$HDR	${D}_commits"; done
   printf '%s\tverdict\n' "$HDR"
-  grep -v '^#' "$MAP" 2>/dev/null | grep -v '^[[:space:]]*$' | while read -r MODE OWNER CONCERN GLOB REST; do
+  grep -v '^#' "$MAP" 2>/dev/null | grep -v '^[[:space:]]*$' | while read -r MODE OWNER _CONCERN GLOB REST; do
     [ -z "${GLOB:-}" ] && continue
 
     # A lane naming a DATA surface is not a path, and a pathspec cannot see it:
@@ -236,6 +236,7 @@ if [ "$REFRESH" = 1 ]; then
       RE=$(printf '%s' "$DEFN" | cut -d'|' -f2)
       C=0
       if [ -n "$RE" ]; then
+        # shellcheck disable=SC2086  # CONTENT_PATHS is a deliberate word-split pathspec list
         case "$LANE_MODE" in
           content) C=$(git log --since="$SINCE" --format='%an' -G"$LANE_RE" "$UPSTREAM" -- $CONTENT_PATHS 2>/dev/null | grep -cE "$RE") ;;
           path)    C=$(git log --since="$SINCE" --format='%an' --name-only "$UPSTREAM" -- "$GLOB" 2>/dev/null | grep -cE "$RE") ;;
@@ -288,15 +289,14 @@ bump() { [ "$1" -gt "$RC" ] && RC="$1"; }
 # body. The first source that CONTAINS the token wins; a source that does NOT
 # contain it just falls through to the next one, it never stops the search.
 RATIFIED_SRC=""
-RATIFIED_TEXT=""
 if [ -n "$RATIFIED_FLAG" ] && printf '%s' "$RATIFIED_FLAG" | grep -qF "$RATIFY_TOKEN"; then
-  RATIFIED_SRC="--ratified flag"; RATIFIED_TEXT="$RATIFIED_FLAG"
+  RATIFIED_SRC="--ratified flag"
 elif [ -n "${RATIFIED:-}" ] && printf '%s' "$RATIFIED" | grep -qF "$RATIFY_TOKEN"; then
-  RATIFIED_SRC="\$RATIFIED env"; RATIFIED_TEXT="$RATIFIED"
+  RATIFIED_SRC="\$RATIFIED env"
 else
   GIT_MSG=$(cd "$REPO_ROOT" 2>/dev/null && git log -1 --format=%B 2>/dev/null)
   if [ -n "$GIT_MSG" ] && printf '%s' "$GIT_MSG" | grep -qF "$RATIFY_TOKEN"; then
-    RATIFIED_SRC="last commit message"; RATIFIED_TEXT="$GIT_MSG"
+    RATIFIED_SRC="last commit message"
   fi
 fi
 # ── the receipt must be SCOPED TO THE ACT ─────────────────────────────────────

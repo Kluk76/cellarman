@@ -31,6 +31,7 @@ _realpath() {
 }
 
 KIT_DIR="$(cd "$(dirname "$0")" && pwd)"
+# shellcheck disable=SC2034  # REPO_ROOT is read by the profile this script sources
 REPO_ROOT="$(cd "$KIT_DIR/../.." && pwd)"
 CONF="$KIT_DIR/../pm-kit.conf"
 [ -f "$CONF" ] || exit 0

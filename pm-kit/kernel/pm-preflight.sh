@@ -425,7 +425,7 @@ if [ -z "$MIG_DIR" ]; then
   ok queue-target "n/a (no queue declared)"
   ONLY_UP=""; ONLY_DK=""
 else
-  ls "$MIG_DIR"/*.sql 2>/dev/null | while IFS= read -r f; do basename "$f"; done | sort > "$TMP/disk"
+  for f in "$MIG_DIR"/*.sql; do if [ -e "$f" ]; then basename "$f"; fi; done | sort > "$TMP/disk"
   git ls-tree "$UPSTREAM" "$MIG_DIR/" --name-only 2>/dev/null \
     | sed 's|.*/||' | grep '\.sql$' | sort > "$TMP/upstream"
 
@@ -466,10 +466,10 @@ else
   # WHOLE directory, so another session's draft gets promoted under your name and
   # may land untracked by git.
   if [ -d "$DRAFT_DIR" ]; then
-    DN=$(ls "$DRAFT_DIR"/*.sql 2>/dev/null | wc -l | tr -d ' ')
+    DN=0; for f in "$DRAFT_DIR"/*.sql; do if [ -e "$f" ]; then DN=$((DN+1)); fi; done
     if [ "$DN" -gt 0 ]; then
       warn mig-draft "$DN file(s) in $DRAFT_DIR — promoting sweeps ALL of them; list before running it:"
-      [ "$DO_JSON" = 1 ] || ls "$DRAFT_DIR"/*.sql 2>/dev/null | sed 's/^/         /'
+      [ "$DO_JSON" = 1 ] || for f in "$DRAFT_DIR"/*.sql; do if [ -e "$f" ]; then printf '         %s\n' "$f"; fi; done
     else ok mig-draft "_draft/ empty"; fi
   else ok mig-draft "_draft/ absent (nothing staged)"; fi
 
@@ -542,9 +542,11 @@ else
     : > "$TMP/names"
     while IFS= read -r f; do
       [ -f "$f" ] || continue
-      grep -oiE 'CONSTRAINT[[:space:]]+`?[A-Za-z0-9_]+`?'      "$f" | awk '{print $NF}' | tr -d '`' >> "$TMP/names"
-      grep -oiE 'CREATE[[:space:]]+TRIGGER[[:space:]]+`?[A-Za-z0-9_]+`?' "$f" | awk '{print $NF}' | tr -d '`' >> "$TMP/names"
-      grep -oiE 'CREATE[[:space:]]+EVENT[[:space:]]+`?[A-Za-z0-9_]+`?'   "$f" | awk '{print $NF}' | tr -d '`' >> "$TMP/names"
+      {
+        grep -oiE 'CONSTRAINT[[:space:]]+`?[A-Za-z0-9_]+`?'      "$f" | awk '{print $NF}' | tr -d '`'
+        grep -oiE 'CREATE[[:space:]]+TRIGGER[[:space:]]+`?[A-Za-z0-9_]+`?' "$f" | awk '{print $NF}' | tr -d '`'
+        grep -oiE 'CREATE[[:space:]]+EVENT[[:space:]]+`?[A-Za-z0-9_]+`?'   "$f" | awk '{print $NF}' | tr -d '`'
+      } >> "$TMP/names"
     done <<< "$CAND"
     sort -u "$TMP/names" -o "$TMP/names"
     NN=$(wc -l < "$TMP/names" | tr -d ' ')
@@ -608,9 +610,9 @@ if [ -n "$CAND" ]; then
   while IFS= read -r f; do
     [ -f "$f" ] || continue
     B=$(basename "$f" .sql)
-    SLUG=$(printf '%s' "$B" | sed "$DRIFT_SLUG_SED" | tr 'A-Z' 'a-z')
+    SLUG=$(printf '%s' "$B" | sed "$DRIFT_SLUG_SED" | tr '[:upper:]' '[:lower:]')
     TBLS=$(grep -oiE 'CREATE[[:space:]]+TABLE([[:space:]]+IF[[:space:]]+NOT[[:space:]]+EXISTS)?[[:space:]]+`?[A-Za-z0-9_]+`?' "$f" \
-           | awk '{print $NF}' | tr -d '`' | tr 'A-Z' 'a-z' | sort -u)
+           | awk '{print $NF}' | tr -d '`' | tr '[:upper:]' '[:lower:]' | sort -u)
     [ -z "$TBLS" ] && continue
     for t in $TBLS; do
       case "$t" in "$SLUG"*|*"$SLUG"*) ;; *) DRIFT=1

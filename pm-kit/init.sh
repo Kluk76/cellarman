@@ -174,7 +174,7 @@ AGENT_HOME_STATE=skip
 if [ "$AGENT_INSTALL" = 1 ] && [ -n "${HOME:-}" ]; then
   if [ ! -e "$AGENT_HOME" ]; then AGENT_HOME_STATE=new
   elif cmp -s "$STAGE/claude-brain/agents/${NAME}-pm.md" "$AGENT_HOME"; then AGENT_HOME_STATE=same
-  else AGENT_HOME_STATE=diff; DIFF="$DIFF~/$AGENT_HOME_REL"$'\n'; fi
+  else AGENT_HOME_STATE="diff"; DIFF="$DIFF~/$AGENT_HOME_REL"$'\n'; fi
 fi
 
 if [ -n "$DIFF" ]; then
@@ -232,15 +232,18 @@ if [ "$AGENT_HOME_STATE" = new ]; then
     || { echo "init.sh: FAILED writing $AGENT_HOME" >&2; exit 1; }
 fi
 if [ "$GA_STATE" = new ]; then
+  # shellcheck disable=SC2094  # the last-byte probe reads the file before the append, never concurrently
   { [ -s "$REPO/.gitattributes" ] && [ "$(tail -c 1 "$REPO/.gitattributes" | od -An -tx1 | tr -d ' \n')" != 0a ] && printf '\n'
     cat "$KIT_ROOT/skeleton/gitattributes.example"; } >> "$REPO/.gitattributes"
 fi
 if [ "$GI_STATE" = new ]; then
+  # shellcheck disable=SC2094  # the last-byte probe reads the file before the append, never concurrently
   { [ -s "$REPO/.gitignore" ] && [ "$(tail -c 1 "$REPO/.gitignore" | od -An -tx1 | tr -d ' \n')" != 0a ] && printf '\n'
     cat "$KIT_ROOT/skeleton/gitignore.example"; } >> "$REPO/.gitignore"
 fi
 if [ "$SN_STATE" = new ]; then
   # the snippet without its leading comment block, with the agent name filled in
+  # shellcheck disable=SC2094  # the emptiness probe reads the file before the append, never concurrently
   { [ -s "$REPO/CLAUDE.md" ] && printf '\n'
     awk '/^<!--/{c=1} !c{print} /-->/{if(c){c=0; skip_blank=1}}' "$KIT_ROOT/skeleton/CLAUDE.md.snippet" | sed '/./,$!d' | sed "s/acme-pm/${NAME}-pm/g"; } >> "$REPO/CLAUDE.md"
 fi

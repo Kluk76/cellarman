@@ -119,6 +119,7 @@ gate() {
     # exists (macOS /tmp -> /private/tmp, symlinked agent directories).
     phys() {
         _p="$1"
+        # shellcheck disable=SC2088  # matches a literal "~/" prefix on purpose
         case "$_p" in "~/"*) _p="$HOME/${_p#"~/"}" ;; esac
         case "$_p" in /*) : ;; *) _p="$PROJECT_DIR/$_p" ;; esac
         if [ -d "$_p" ]; then
@@ -133,7 +134,9 @@ gate() {
     if [ -z "$MEM_PATHS" ]; then
         CONF="${PM_KIT_CONF:-$PROJECT_DIR/claude-brain/pm-kit.conf}"
         if [ -f "$CONF" ]; then
+            # shellcheck disable=SC2034  # both are read by the conf sourced just below
             REPO_ROOT="$PROJECT_DIR"
+            # shellcheck disable=SC2034
             KIT_DIR="$(dirname "$CONF")/pm-kit"
             # shellcheck disable=SC1090
             . "$CONF" 2>/dev/null
@@ -169,6 +172,7 @@ gate() {
         [ -e "$STATE_DIR/$AGENT_ID.blocked" ] && return 0
 
         TRANSCRIPT="$(str '.agent_transcript_path' agent_transcript_path)"
+        # shellcheck disable=SC2088  # matches a literal "~/" prefix on purpose
         case "$TRANSCRIPT" in "~/"*) TRANSCRIPT="$HOME/${TRANSCRIPT#"~/"}" ;; esac
         [ -n "$TRANSCRIPT" ] && [ -r "$TRANSCRIPT" ] || return 0
 

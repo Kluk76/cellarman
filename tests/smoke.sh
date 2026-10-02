@@ -175,6 +175,7 @@ run env PATH="$SB/nopgrep:$PATH" bash "$KITREL/catalog.sh" --grep journal
 ###############################################################################
 # B4 — no `realpath` on the machine: catalog and the telemetry hook still work
 ###############################################################################
+# shellcheck disable=SC2086  # COMMON_TOOLS is a word list
 mk_toolpath "$SB/norealpath" $COMMON_TOOLS
 { [ ! -e "$SB/norealpath/realpath" ]; }; check B4 "fixture PATH really has no realpath" $?
 run env PATH="$SB/norealpath" "$(command -v bash)" "$KITREL/catalog.sh"
@@ -215,6 +216,7 @@ for i in 1 2 3 4; do head -c 10240 /dev/zero | tr '\0' 'x' > "$MEMDIR/index-relo
 run env PATH="$SB/noprintf:$PATH" bash "$KITREL/doctor.sh"
 { has 'topic file(s) over 80 KB' && has '90 KB  big-topic.md'; }; check B1 "check 6 reports an oversized topic file with a printf-less find" $?
 { has '4 archived snapshot' && has '40 KB'; }; check B1 "check 7 reports archive size with a printf-less find" $?
+# shellcheck disable=SC2046  # the tool list is a word list
 mk_toolpath "$SB/nofind" $(for t in $COMMON_TOOLS; do [ "$t" = find ] || printf '%s ' "$t"; done)
 run env PATH="$SB/nofind" "$(command -v bash)" "$KITREL/doctor.sh"
 { has "check (6) UNMEASURED — required tool 'find'" && lacks 'no topic file over'; }; check B1 "a missing find is UNMEASURED, never 'ok — no topic file over' (rc=$RC)" $?
@@ -224,6 +226,7 @@ rm -rf "$MEMDIR/big-topic.md" "$MEMDIR/index-relocated-detail"
 # B2 — agent-copy drift by content compare, no md5sum on the machine
 ###############################################################################
 mk_proj pb2 remote
+# shellcheck disable=SC2086  # COMMON_TOOLS is a word list
 mk_toolpath "$SB/nomd5" $COMMON_TOOLS
 { [ ! -e "$SB/nomd5/md5sum" ]; }; check B2 "fixture PATH really has no md5sum" $?
 run env PATH="$SB/nomd5" "$(command -v bash)" "$KITREL/doctor.sh"
@@ -231,6 +234,7 @@ run env PATH="$SB/nomd5" "$(command -v bash)" "$KITREL/doctor.sh"
 printf '\nlocally edited\n' >> "$HOME/.claude/agents/acme-pm.md"
 run env PATH="$SB/nomd5" "$(command -v bash)" "$KITREL/doctor.sh"
 { has 'agent definition drift:' && lacks 'copies in sync'; }; check B2 "a differing installed copy is flagged without md5sum" $?
+# shellcheck disable=SC2046  # the tool list is a word list
 mk_toolpath "$SB/nocmp" $(for t in $COMMON_TOOLS; do [ "$t" = cmp ] || printf '%s ' "$t"; done)
 run env PATH="$SB/nocmp" "$(command -v bash)" "$KITREL/doctor.sh"
 { has "check (8) UNMEASURED — required tool 'cmp'" && lacks 'copies in sync'; }; check B2 "a missing cmp is UNMEASURED, never 'in sync'" $?
@@ -302,7 +306,7 @@ mkdir -p "$SB/tmpd"
 for tool in pm-preflight rails-index; do
   if [ "$tool" = pm-preflight ]; then XARGS=--no-fetch; else XARGS=""; fi
   run env TMPDIR="$SB/tmpd" bash -x "$KITREL/kernel/$tool.sh" $XARGS
-  LEFT="$(ls "$SB/tmpd" | wc -l | tr -d ' ')"
+  LEFT="$(find "$SB/tmpd" -mindepth 1 | wc -l | tr -d ' ')"
   { has "mktemp -d $SB/tmpd/" && [ "$LEFT" = 0 ]; }; check B6 "$tool uses mktemp -d under \$TMPDIR and leaves nothing behind" $?
 done
 
@@ -635,6 +639,7 @@ run bash "$KITREL/kernel/ownership-lint.sh" --dev a src/x
 run bash "$KITREL/kernel/rails-index.sh"
 { [ "$RC" = 3 ] && has 'NOT RUN'; }; check A2x "rails-index: no profile did not run, exit 3 (rc=$RC)" $?
 mk_proj pa2y remote
+# shellcheck disable=SC2046  # the tool list is a word list
 mk_toolpath "$SB/nocomm" $(for t in $COMMON_TOOLS; do [ "$t" = comm ] || printf '%s ' "$t"; done)
 run env PATH="$SB/nocomm" "$(command -v bash)" "$KITREL/kernel/pm-preflight.sh" --no-fetch
 { [ "$RC" = 3 ] && has "NOT RUN — required tool 'comm'"; }; check A2x "pm-preflight: a missing tool did not run, exit 3 (rc=$RC)" $?
@@ -1037,7 +1042,9 @@ cd "$PROJ" 2>/dev/null || true
 ###############################################################################
 cd "$C" || exit 64
 WF=.github/workflows/smoke.yml
-missing=""; for f in $(grep -oE 'tests/[A-Za-z0-9_.-]+\.sh' "$WF" | sort -u); do [ -f "$f" ] || missing="$missing $f"; done
+missing=""
+# shellcheck disable=SC2013  # file names here contain no whitespace
+for f in $(grep -oE 'tests/[A-Za-z0-9_.-]+\.sh' "$WF" | sort -u); do [ -f "$f" ] || missing="$missing $f"; done
 { [ -z "$missing" ]; }; check 13 "every tests/*.sh the workflow names exists ($missing)" $?
 unnamed=""; for f in tests/*.sh; do [ "$f" = tests/conf-surface.sh ] && continue; grep -q "$f" "$WF" || unnamed="$unnamed $f"; done
 { [ -z "$unnamed" ]; }; check 13 "every suite under tests/ is run by the workflow (conf-surface.sh is run by smoke.sh) ($unnamed)" $?
