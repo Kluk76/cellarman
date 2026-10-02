@@ -78,6 +78,12 @@ mk_proj() {
 prof_set() { printf '%s=%s\n' "$1" "$2" >> "$PROJ/$PROFILE"; }
 # tmo <cmd...>: bounded run where a `timeout` exists (a hang must FAIL, not stall the suite).
 tmo() { if command -v timeout >/dev/null 2>&1; then timeout 10 "$@"; elif command -v gtimeout >/dev/null 2>&1; then gtimeout 10 "$@"; else "$@"; fi; }
+# A `grep` that rejects -P the way BSD grep does (the real one is found by absolute path).
+mk_nopgrep() {
+  mkdir -p "$SB/nopgrep"
+  printf '#!/bin/sh\nfor a in "$@"; do case "$a" in -P|-[a-zA-Z]*P*) echo "grep: invalid option -- P" >&2; exit 2 ;; esac; done\nexec %s "$@"\n' "$(command -v grep)" > "$SB/nopgrep/grep"
+  chmod +x "$SB/nopgrep/grep"
+}
 commit_all() { git add -- . && git commit -q -m "${1:-state}" && { [ ! -d "$REMOTE" ] || git push -q > /dev/null 2>&1; }; }
 
 ###############################################################################
@@ -134,6 +140,19 @@ run tmo bash "$KITREL/kernel/ownership-lint.sh" --dev
 { [ "$RC" = 64 ] && has 'needs a value' && lacks 'unbound'; }; check A11 "ownership-lint --dev without a value: usage error (rc=$RC)" $?
 run tmo bash "$KITREL/kernel/rails-index.sh" --conf
 { [ "$RC" = 64 ] && has 'needs a value' && lacks 'unbound'; }; check A11 "rails-index --conf without a value: usage error (rc=$RC)" $?
+
+###############################################################################
+# 1.12 / B3 — catalog: missing memory dir; load counts without `grep -P`
+###############################################################################
+mk_proj p112 remote
+rmdir "$MEMDIR"
+run bash "$KITREL/catalog.sh"
+{ [ "$RC" != 0 ] && has 'memory dir not found' && lacks 'topic files ->'; }; check 1.12 "catalog on a missing memory dir: clear error, non-zero (rc=$RC)" $?
+mkdir -p "$MEMDIR"; printf '# Journal\n\n> Trigger: history\n' > "$MEMDIR/journal.md"
+printf '2026-10-01\tjournal.md\n2026-10-02\tjournal.md\n' > claude-brain/agents/.pm-load-log.tsv
+mk_nopgrep
+run env PATH="$SB/nopgrep:$PATH" bash "$KITREL/catalog.sh" --grep journal
+{ [ "$RC" = 0 ] && has 'loads:2 last:2026-10-02'; }; check B3 "catalog reads load counts from the log with a -P-less grep (rc=$RC)" $?
 
 ###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"

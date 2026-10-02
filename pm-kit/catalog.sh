@@ -47,6 +47,9 @@ CONF="${CONF:-$KIT_DIR/../pm-kit.conf}"
 . "$CONF"
 
 CATALOG="${PM_CATALOG:-$(dirname "$PM_INDEX")/pm-catalog.tsv}"
+# A missing memory dir must be an error, not "-1 topic files" after a realpath
+# failure that the pipeline below swallowed.
+[ -d "${PM_MEMORY_DIR:-}" ] || { echo "pm-catalog: memory dir not found: ${PM_MEMORY_DIR:-<PM_MEMORY_DIR unset>}" >&2; exit 1; }
 MEM_DIR="$(realpath "$PM_MEMORY_DIR")"
 
 # Pre-aggregate the load log once: relpath -> "count \t last-date".
@@ -72,7 +75,9 @@ fi
             | sed 's/^> *//' | tr -d '*`' | tr '\n\t' '  ' | cut -c1-400)"
         title="$(printf '%s\n' "$head_block" \
             | grep -m1 '^# ' | sed 's/^# *//' | tr -d '*`' | tr '\t' ' ' | cut -c1-160)"
-        loadrow="$(grep -m1 -P "^\Q$rel\E\t" "$LOADS_TMP" 2>/dev/null || true)"
+        # Exact first-column match through ENVIRON (no regex, no -P: BSD grep has
+        # none, and its error was swallowed so every file read "loads:0").
+        loadrow="$(REL="$rel" awk -F'\t' '$1 == ENVIRON["REL"] { print; exit }' "$LOADS_TMP")"
         if [ -n "$loadrow" ]; then
             loads="$(printf '%s' "$loadrow" | cut -f2)"
             last="$(printf '%s' "$loadrow" | cut -f3)"
