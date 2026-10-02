@@ -346,7 +346,7 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 { has 'ok   mig-vps.*n/a (no deploy target declared)' "$OUTT" && lacks 'WARN mig-vps' "$OUTT" && has 'ok   mig-upstream.*no migration on' "$OUTT"; }; check 1.6 "empty PF_TARGET_HOST: the target leg is n/a, the queue is still measured" $?
 mk_proj p16c remote
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
-{ has 'WARN mig-vps.*UNMEASURED' "$OUTT"; }; check 1.6 "a declared target without --probe-db stays an honest WARN" $?
+{ has 'UNMEASURED mig-vps' "$OUTT" && [ "$RC" = 1 ]; }; check 1.6 "a declared target without --probe-db is UNMEASURED and keeps exit 1" $?
 
 # CLEAR: everything declared is measured and clean
 mk_proj p16d remote
@@ -570,7 +570,7 @@ mk_proj pa12 remote
 prof_set PF_ALWAYS_PATHS '""'
 printf 'own a logic src/*\n' > claude-brain/OWNERSHIP.map; mkdir -p src; printf '# state\topened\tdev\tslug\tglobs\tnote\tsession\n' > claude-brain/CLAIMS.tsv
 run env -u ACME_DEV bash bin/pm-preflight.sh --no-fetch --paths src/billing.php; strip
-{ has 'WARN ownership.*ACME_DEV is unset.*CANNOT be judged' "$OUTT" && lacks 'SHARED' "$OUTT"; }; check A12 "ACME_DEV unset: named as such, not as a shared lane" $?
+{ has 'UNMEASURED ownership.*ACME_DEV is unset.*CANNOT be judged' "$OUTT" && lacks 'SHARED' "$OUTT"; }; check A12 "ACME_DEV unset: named as such and UNMEASURED, not a shared lane" $?
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths src/billing.php; strip
 { has 'ok   ownership.*within the acting dev' "$OUTT"; }; check A12 "ACME_DEV set: the lane verdict is given" $?
 
@@ -599,12 +599,12 @@ printf -- '- ⛔ never edit `claude-brain/FROZEN.md` by hand\n' >> "$INDEX"
 run bash "$KITREL/kernel/rails-index.sh"
 commit_all "ambient fixture"
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths src/billing.php; strip
-{ lacks 'STOP' "$OUTT" && has 'WARN ownership.*ambient (always-checked path)' "$OUTT" && has 'WARN rails.*ambient (always-checked path)' "$OUTT"; }; check amb-b "frozen + STOP-rail always-checked path, clean build: WARN labelled ambient, no STOP (rc=$RC)" $?
+{ lacks 'STOP' "$OUTT" && has 'WARN ownership.*\[ambient\]' "$OUTT" && has 'WARN rails.*\[ambient\]' "$OUTT"; }; check amb-b "frozen + STOP-rail always-checked path, clean build: WARN labelled ambient, no STOP (rc=$RC)" $?
 { [ "$RC" = 1 ]; }; check amb-b "the run exits 1, not 2 (rc=$RC)" $?
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
-{ lacks 'STOP' "$OUTT" && has 'WARN ownership.*ambient' "$OUTT"; }; check amb-b "no --paths, clean tree: still ambient WARN, never STOP (rc=$RC)" $?
+{ lacks 'STOP' "$OUTT" && has 'WARN ownership.*\[ambient\]' "$OUTT"; }; check amb-b "no --paths, clean tree: still ambient WARN, never STOP (rc=$RC)" $?
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths claude-brain/FROZEN.md; strip
-{ [ "$RC" = 2 ] && has 'STOP ownership' "$OUTT" && has 'STOP rails' "$OUTT" && lacks 'ambient' "$OUTT"; }; check amb-b "the caller passing the same path itself: real STOPs (rc=$RC)" $?
+{ [ "$RC" = 2 ] && has 'STOP ownership' "$OUTT" && has 'STOP rails' "$OUTT" && lacks '\[ambient\]' "$OUTT"; }; check amb-b "the caller passing the same path itself: real STOPs (rc=$RC)" $?
 echo edit >> claude-brain/FROZEN.md
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 { [ "$RC" = 2 ] && has 'STOP ownership' "$OUTT" && has 'STOP rails' "$OUTT"; }; check amb-b "the same path DIRTY in the worktree is the build's own: real STOPs (rc=$RC)" $?
@@ -648,6 +648,41 @@ run bash "$KITREL/kernel/rails-index.sh"; strip
 prof_set PF_ARTEFACT_EXPAND "'echo declared'"
 run bash "$KITREL/kernel/rails-index.sh"; strip
 { [ "$RC" = 1 ] && has 'UNMEASURED' "$OUTT"; }; check A2x "rails-index: a declared expansion with no cache stays unmeasured, exit 1 (rc=$RC)" $?
+
+###############################################################################
+# A1 / A3 — the ambient marker and the unmeasured level, in text and in --json
+###############################################################################
+# (the "pcc" fixture above leaves the ambient STOPs in place on a clean build)
+mk_proj pam remote
+prof_set PF_ALWAYS_PATHS '"claude-brain/FROZEN.md"'
+printf 'own a logic src/*\nfrozen * fiscal claude-brain/FROZEN.md\n' > claude-brain/OWNERSHIP.map; mkdir -p src
+printf '# state\topened\tdev\tslug\tglobs\tnote\tsession\n' > claude-brain/CLAIMS.tsv
+printf '# frozen\n' > claude-brain/FROZEN.md
+printf -- '- ⛔ never edit `claude-brain/FROZEN.md` by hand\n' >> "$INDEX"
+run bash "$KITREL/kernel/rails-index.sh"
+commit_all "ambient json fixture"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --json --paths src/billing.php
+{ has '"check":"ownership","msg":"\[ambient\][^"]*","ambient":true' && has '"check":"rails","msg":"\[ambient\][^"]*","ambient":true'; }; check A1 "--json: ambient rows carry \"ambient\":true and the [ambient] marker" $?
+{ ! has '"check":"ownership","msg":"[^"]*"}' ; }; check A1 "--json: no ownership row lacks the flag when it is ambient" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths claude-brain/FROZEN.md --json
+{ ! has '"ambient":true'; }; check A1 "--json: a build's own STOP is not marked ambient" $?
+# A3 — unmeasured is its own level
+mk_proj pun remote
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --json
+{ has '"level":"unmeasured","check":"mig-vps"' && has '"unmeasured":[1-9]'; }; check A3 "--json: a declared-but-unreached target is level \"unmeasured\", counted in the summary object" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'UNMEASURED mig-vps' "$OUTT" && has '[0-9]* unmeasured' "$OUTT" && [ "$RC" = 1 ]; }; check A3 "text: UNMEASURED line, counted separately in the verdict, exit 1 (rc=$RC)" $?
+{ lacks 'WARN mig-vps' "$OUTT" && lacks 'info *mig-vps' "$OUTT"; }; check A3 "text: unmeasured is neither WARN nor info" $?
+# undeclared => n/a, never unmeasured
+prof_set PF_QUEUE_DIR '""'; prof_set PF_QUEUE_STAGING '""'; prof_set PF_TARGET_HOST '""'; prof_set PF_ALWAYS_PATHS '""'
+prof_set PF_OWNERSHIP_MAP '""'; prof_set PF_ARB_FILE '""'; prof_set PF_RAILS_OUTPUT '""'; prof_set PM_DOCTOR '""'
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --json
+{ ! has '"level":"unmeasured"'; }; check A3 "every undeclared target is n/a: no unmeasured row" $?
+# declared but absent => unmeasured, exit 1
+prof_set PF_OWNERSHIP_MAP '"claude-brain/NO-SUCH.map"'; prof_set PF_ARB_FILE '"claude-brain/no-such-register.md"'
+prof_set PF_RAILS_OUTPUT '"claude-brain/pm-kit/state/none.tsv"'; prof_set PM_DOCTOR '"claude-brain/pm-kit/no-such-doctor.sh"'
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'UNMEASURED ownership' "$OUTT" && has 'UNMEASURED arbitration' "$OUTT" && has 'UNMEASURED rails' "$OUTT" && has 'UNMEASURED memory' "$OUTT" && [ "$RC" = 1 ]; }; check A3 "declared-but-absent map/register/rails/doctor are each UNMEASURED, exit 1 (rc=$RC)" $?
 
 ###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"

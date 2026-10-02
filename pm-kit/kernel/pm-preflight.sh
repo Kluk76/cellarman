@@ -182,7 +182,7 @@ DRIFT_SLUG_SED="${PF_DRIFT_SLUG_RE:-}"
 # Default empty => no always-checked path.
 # But they are AMBIENT, not the build: a STOP that comes ONLY from one of them
 # (and not from a path the caller passed or a dirty file) is reported as a WARN
-# labelled "ambient (always-checked path)" — see _load_touch and P5/P8.
+# marked "[ambient]" (text) and "ambient":true (--json) — see _load_touch and P5/P8.
 ALWAYS_ARR=()
 if [ -n "$ALWAYS_PATHS" ]; then
   set -f
@@ -250,11 +250,19 @@ _load_touch() {
 RC=0
 WARN_N=0
 STOP_N=0
+UNMEAS_N=0
 JSON_ROWS=""
+# _AMB=1 marks the row being emitted as AMBIENT: it comes only from an
+# always-checked governance path, not from this build's own paths. Text rows
+# carry the literal marker "[ambient]"; --json rows carry "ambient":true.
+# Callers use the *_amb wrappers below, so the PM never has to infer it.
+_AMB=0
 
 _esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 _row() { # kind check message
-  JSON_ROWS="$JSON_ROWS{\"level\":\"$1\",\"check\":\"$2\",\"msg\":\"$(_esc "$3")\"},"
+  local amb=""
+  [ "$_AMB" = 1 ] && amb=',"ambient":true'
+  JSON_ROWS="$JSON_ROWS{\"level\":\"$1\",\"check\":\"$2\",\"msg\":\"$(_esc "$3")\"$amb},"
 }
 ok()   { [ "$DO_JSON" = 1 ] || printf '  \033[32mok\033[0m   %-22s %s\n' "$1" "$2"; _row ok "$1" "$2"; }
 warn() { WARN_N=$((WARN_N+1)); [ "$RC" -lt 1 ] && RC=1
@@ -265,6 +273,15 @@ stop() { STOP_N=$((STOP_N+1)); RC=2
 # measure this build. It never touches the exit code (so CLEAR stays reachable)
 # and it is never printed as "ok".
 info() { [ "$DO_JSON" = 1 ] || printf '  \033[36minfo\033[0m %-22s %s\n' "$1" "$2"; _row info "$1" "$2"; }
+# unmeasured: a check whose target was DECLARED but could not be reached (a probe
+# not run, a host down, a file the profile names that is absent). It is neither a
+# pass nor a finding; it is a measurement that did not happen, so it keeps exit 1
+# and is counted on its own in the summary. A target the profile never declared is
+# not unmeasured: that phase prints "n/a" and changes nothing.
+unmeasured() { UNMEAS_N=$((UNMEAS_N+1)); [ "$RC" -lt 1 ] && RC=1
+         [ "$DO_JSON" = 1 ] || printf '  \033[35mUNMEASURED\033[0m %-22s %s\n' "$1" "$2"; _row unmeasured "$1" "$2"; }
+ok_amb()   { _AMB=1; ok   "$1" "[ambient] $2"; _AMB=0; }
+warn_amb() { _AMB=1; warn "$1" "[ambient] $2"; _AMB=0; }
 sec()  { [ "$DO_JSON" = 1 ] || printf '\n\033[1m%s\033[0m\n' "$1"; }
 
 [ "$DO_JSON" = 1 ] || printf '\033[1mpm-preflight\033[0m  %s  @ %s\n' "$REPO_ROOT" "$(date -u '+%Y-%m-%dT%H:%M:%SZ')"
@@ -440,19 +457,19 @@ else
       UP_NOT_VPS=$(comm -13 "$TMP/vps" "$TMP/upstream")
       VPS_NOT_UP=$(comm -23 "$TMP/vps" "$TMP/upstream")
       if [ -n "$UP_NOT_VPS" ]; then
-        warn mig-vps "on $UPSTREAM, not yet on the VPS (a deploy arms them):"
+        warn mig-vps "on $UPSTREAM, not yet on the deploy target (a deploy arms them):"
         [ "$DO_JSON" = 1 ] || printf '%s\n' "$UP_NOT_VPS" | sed 's/^/         /'
       fi
       if [ -n "$VPS_NOT_UP" ]; then
-        stop mig-vps "on the VPS and NOT on $UPSTREAM — prod has a migration git does not know about:"
+        stop mig-vps "on the deploy target and NOT on $UPSTREAM — the target has a queued change git does not know about:"
         [ "$DO_JSON" = 1 ] || printf '%s\n' "$VPS_NOT_UP" | sed 's/^/         /'
       fi
-      [ -z "$UP_NOT_VPS$VPS_NOT_UP" ] && ok mig-vps "VPS == $UPSTREAM for db/migrations/"
+      [ -z "$UP_NOT_VPS$VPS_NOT_UP" ] && ok mig-vps "deploy target == $UPSTREAM for $MIG_DIR/"
     else
-      warn mig-vps "could not reach $SSH_TARGET — VPS side of the three-way diff NOT measured"
+      unmeasured mig-vps "could not reach $SSH_TARGET — target side of the three-way diff NOT measured"
     fi
   else
-    warn mig-vps "--probe-db not given: the VPS leg is UNMEASURED ('Pending 0' would be an unproven claim)"
+    unmeasured mig-vps "--probe-db not given: the deploy-target leg is not measured ('Pending 0' would be an unproven claim)"
   fi
 fi
 
@@ -494,7 +511,7 @@ else
     if [ "$NN" = 0 ]; then
       ok namespace "candidate migration(s) declare no schema-global name"
     elif [ "$DO_PROBE" = 1 ] && [ -z "$NS_TAKEN_CMD" ]; then
-      warn namespace "profile defines no namespace probe (PF_NS_TAKEN) — UNMEASURED, falling back to the repo-corpus lower bound"
+      unmeasured namespace "profile defines no namespace probe (PF_NS_TAKEN): the real schema was not queried; falling back to the repo-corpus lower bound"
       DO_PROBE=0
     elif [ "$DO_PROBE" = 1 ]; then
       # AUTHORITATIVE: the entire reach-the-real-schema command is profile-owned
@@ -510,7 +527,7 @@ else
           ok namespace "$NN declared name(s) verified free against the REAL schema"
         fi
       else
-        warn namespace "live probe failed — falling back to the repo-corpus lower bound (see below)"
+        unmeasured namespace "live probe failed: the real schema was not queried; falling back to the repo-corpus lower bound (see below)"
         DO_PROBE=0
       fi
     fi
@@ -570,8 +587,10 @@ fi
 # ── P5. Ownership of the touched paths ─────────────────────────────────────────
 sec "P5 · ownership"
 _load_touch
-if [ ! -f "$OWNERSHIP_MAP" ]; then
-  warn ownership "$OWNERSHIP_MAP absent — ownership is prose only${OWNERSHIP_PROSE:+ ($OWNERSHIP_PROSE)}; no machine check possible"
+if [ -z "$OWNERSHIP_MAP" ]; then
+  ok ownership "n/a (no ownership map declared: PF_OWNERSHIP_MAP is empty)"
+elif [ ! -f "$OWNERSHIP_MAP" ]; then
+  unmeasured ownership "$OWNERSHIP_MAP absent — ownership is prose only${OWNERSHIP_PROSE:+ ($OWNERSHIP_PROSE)}; no machine check possible"
 else
   if [ ${#TOUCH_ARR[@]} -eq 0 ]; then
     info ownership "NOT measured for this build — no --paths given and the worktree is clean (and no always-checked path is declared)"
@@ -581,7 +600,7 @@ else
     # before running it, instead of mapping that rc to a lane claim it never made.
     eval "ACTING_DEV=\"\${${DEV_ENV_VAR}:-}\""
     if [ -z "$ACTING_DEV" ]; then
-      warn ownership "\$$DEV_ENV_VAR is unset — the acting dev is unknown, so lanes CANNOT be judged (ownership NOT measured). Export it, or run ownership-lint.sh --dev <id>."
+      unmeasured ownership "\$$DEV_ENV_VAR is unset — the acting dev is unknown, so lanes CANNOT be judged. Export it, or run ownership-lint.sh --dev <id>."
     else
       # The always-checked paths are a governance surface every session READS,
       # never its own build: a claim held over one of them must not STOP an
@@ -609,11 +628,12 @@ else
            fi ;;
         1) warn ownership "touched path(s) in a shared, contested or unmapped lane (or a ratified crossing) — run ownership-lint.sh for the list" ;;
         2) if [ "$AMBIENT_ONLY" = 1 ]; then
-             warn ownership "ambient (always-checked path): an always-checked path (PF_ALWAYS_PATHS) is in the OTHER dev's lane, a FROZEN lane, or under another claim — not caused by this build's own paths; run ownership-lint.sh on it"
+             warn_amb ownership "an always-checked path (PF_ALWAYS_PATHS) is in the OTHER dev's lane, a FROZEN lane, or under another claim. It would show for any build, not caused by this build's own paths; run ownership-lint.sh on it"
            else
              stop ownership "touched path(s) in the OTHER dev's lane or a FROZEN lane — see ownership-lint.sh"
            fi ;;
-        *) warn ownership "ownership-lint.sh unavailable or errored" ;;
+        3) unmeasured ownership "ownership-lint.sh did not run (exit 3): lanes were not judged" ;;
+        *) unmeasured ownership "ownership-lint.sh unavailable or errored (exit $LRC): lanes were not judged" ;;
       esac
     fi
   fi
@@ -638,8 +658,10 @@ done
 # 🔴 threshold while reading "0 j". A detector keys on SILENCE, not on a status
 # column somebody has to remember to write.
 sec "P6 · arbitration queue (age recomputed, not read)"
-if [ ! -f "$HANDOFF" ]; then
-  warn arbitration "$HANDOFF not found"
+if [ -z "$HANDOFF" ]; then
+  ok arbitration "n/a (no arbitration register declared: PF_ARB_FILE is empty)"
+elif [ ! -f "$HANDOFF" ]; then
+  unmeasured arbitration "$HANDOFF not found"
 else
   TODAY=$(date -u '+%Y%m%d')
   awk -v today="$TODAY" -v warnd="$ARB_WARN_DAYS" -v stopd="$ARB_STOP_DAYS" '
@@ -725,7 +747,9 @@ fi
 
 # ── P7. Memory-store health (delegate, don't reimplement) ──────────────────────
 sec "P7 · PM memory"
-if [ -x "$DOCTOR" ]; then
+if [ -z "$DOCTOR" ]; then
+  ok memory "n/a (no memory doctor declared: PM_DOCTOR is empty)"
+elif [ -x "$DOCTOR" ]; then
   # ANCHORED on the doctor's own line prefix. An unanchored `grep -E 'WARN|FAIL'`
   # also matched listed FILENAMES (an orphan named FAILOVER-notes.md) and the
   # summary text, and STOPped on a doctor that reported "0 fail(s)". The STOP
@@ -741,7 +765,7 @@ if [ -x "$DOCTOR" ]; then
     ok memory "doctor.sh clean"
   fi
 else
-  warn memory "$DOCTOR not executable — memory health UNMEASURED"
+  unmeasured memory "$DOCTOR is not executable — memory health was not measured"
 fi
 
 # ── P8. Artefact-keyed rails — recall by ADDRESS, not by association ───────────
@@ -754,9 +778,9 @@ fi
 # UNMEASURED, said as loudly as a failed probe anywhere else in this file.
 sec "P8 · artefact-keyed rails"
 if [ -z "$RAILS_TSV" ]; then
-  warn rails "profile defines no PF_RAILS_OUTPUT — artefact-keyed rail lookup UNMEASURED"
+  ok rails "n/a (no rails table declared: PF_RAILS_OUTPUT is empty)"
 elif [ ! -f "$RAILS_TSV" ]; then
-  warn rails "$RAILS_TSV absent — UNMEASURED, not a clean pass. Run kernel/rails-index.sh (ideally with --refresh-graph at least once) before trusting this check."
+  unmeasured rails "$RAILS_TSV absent — not a clean pass. Run kernel/rails-index.sh (with --refresh-graph at least once, if a view graph is declared) before trusting this check."
 else
   _load_touch
   # Candidates (the path and its basename) for the build's own paths and, apart,
@@ -777,8 +801,6 @@ else
   # _rails_scan <candidate-file> <ambient 0|1>: print every rail keyed to a
   # candidate VERBATIM; sets RAIL_HITS. An ambient STOP is a WARN, labelled.
   _rails_scan() {
-    local lab=""
-    [ "$2" = 1 ] && lab="ambient (always-checked path) — "
     RAIL_HITS=0
     while IFS= read -r RCAND; do
       [ -z "$RCAND" ] && continue
@@ -787,12 +809,20 @@ else
       while IFS="$(printf '\t')" read -r ART SEV RAIL SRC ORIG; do
         [ -z "$ART" ] && continue
         RAIL_HITS=$((RAIL_HITS + 1))
-        MSG="$lab$ART [$ORIG] ($SRC): $RAIL"
-        case "$SEV" in
-          STOP) if [ "$2" = 1 ]; then warn rails "$MSG"; else stop rails "$MSG"; fi ;;
-          WARN) warn rails "$MSG" ;;
-          *)     ok rails "[$SEV] $MSG" ;;
-        esac
+        MSG="$ART [$ORIG] ($SRC): $RAIL"
+        # An ambient STOP is a WARN, and every ambient row carries the marker.
+        if [ "$2" = 1 ]; then
+          case "$SEV" in
+            STOP|WARN) warn_amb rails "$MSG" ;;
+            *)         ok_amb rails "[$SEV] $MSG" ;;
+          esac
+        else
+          case "$SEV" in
+            STOP) stop rails "$MSG" ;;
+            WARN) warn rails "$MSG" ;;
+            *)    ok rails "[$SEV] $MSG" ;;
+          esac
+        fi
       done < "$TMP/rails-hit"
     done < "$1"
   }
@@ -809,13 +839,13 @@ fi
 
 # ── verdict ────────────────────────────────────────────────────────────────────
 if [ "$DO_JSON" = 1 ]; then
-  printf '{"rc":%d,"warn":%d,"stop":%d,"checks":[%s]}\n' "$RC" "$WARN_N" "$STOP_N" "${JSON_ROWS%,}"
+  printf '{"rc":%d,"warn":%d,"stop":%d,"unmeasured":%d,"checks":[%s]}\n' "$RC" "$WARN_N" "$STOP_N" "$UNMEAS_N" "${JSON_ROWS%,}"
 else
   printf '\n'
   case "$RC" in
-    0) printf '\033[32m● CLEAR\033[0m — no clash signal. Proceed.\n' ;;
-    1) printf '\033[33m● PROCEED WITH NAMED WARNINGS (%d)\033[0m — the consult MUST name each one.\n' "$WARN_N" ;;
-    2) printf '\033[31m● STOP (%d blocking)\033[0m — do not sequence this build. Resolve, or hand it to a human.\n' "$STOP_N" ;;
+    0) printf '\033[32m● CLEAR\033[0m — no clash signal, nothing unmeasured. Proceed.\n' ;;
+    1) printf '\033[33m● PROCEED WITH NAMED WARNINGS (%d warning(s), %d unmeasured)\033[0m — the consult MUST name each warning and report each unmeasured check as unmeasured.\n' "$WARN_N" "$UNMEAS_N" ;;
+    2) printf '\033[31m● STOP (%d blocking, %d warning(s), %d unmeasured)\033[0m — do not sequence this build. Resolve, or hand it to a human.\n' "$STOP_N" "$WARN_N" "$UNMEAS_N" ;;
   esac
 fi
 exit "$RC"
