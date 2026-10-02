@@ -533,6 +533,35 @@ run bash $LINT --dev a --claim-exempt claude-brain/frozen.md claude-brain/frozen
 { [ "$RC" = 2 ] && has 'FROZEN lane'; }; check claim-exempt "the LANE check still applies to an exempt path (frozen, rc=$RC)" $?
 
 ###############################################################################
+# A18 — paths with spaces, untracked directories and renames are judged whole
+###############################################################################
+mk_proj pa18 remote
+mkdir -p src
+prof_set PF_ALWAYS_PATHS '""'   # isolate the dirty-path population (the always-checked set is exercised by case (b))
+printf 'own a logic src/*\nfrozen * fiscal src/my?file.php\nfrozen * fiscal newdir/frozen*\n' > claude-brain/OWNERSHIP.map
+LINT="$KITREL/kernel/ownership-lint.sh"
+run bash $LINT --dev a 'src/my file.php'
+{ [ "$RC" = 2 ] && has 'src/my file.php — FROZEN lane' && lacks 'src/my — UNMAPPED' && lacks 'file.php — UNMAPPED'; }; check A18 "ownership-lint judges 'src/my file.php' as one path (rc=$RC)" $?
+printf 'x\n' > "src/my file.php"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ [ "$RC" = 2 ] && has 'STOP ownership' "$OUTT"; }; check A18 "pre-flight passes a dirty path with a space to the lint whole (rc=$RC)" $?
+rm -f "src/my file.php"
+mkdir -p newdir; printf 'x\n' > newdir/frozenx.php
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ [ "$RC" = 2 ] && has 'STOP ownership' "$OUTT"; }; check A18 "a file inside an untracked directory is judged, not just 'newdir/' (rc=$RC)" $?
+rm -rf newdir
+printf 'frozen * fiscal src/old.php\nfrozen * fiscal src/frozen?file.php\n' >> claude-brain/OWNERSHIP.map
+printf 'x\n' > src/old.php; printf 'y\n' > src/old2.php; commit_all "old"
+git mv src/old.php "src/plain name.php"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ lacks 'STOP ownership' "$OUTT"; }; check A18 "a staged rename: the OLD path (frozen lane) is not judged (rc=$RC)" $?
+git mv "src/plain name.php" src/old.php
+git mv src/old2.php "src/frozen file.php"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ [ "$RC" = 2 ] && has 'STOP ownership' "$OUTT"; }; check A18 "a staged rename: the NEW path with a space is judged whole (rc=$RC)" $?
+git mv "src/frozen file.php" src/old2.php
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

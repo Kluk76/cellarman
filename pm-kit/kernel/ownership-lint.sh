@@ -70,7 +70,7 @@ fi
 DEV=""
 QUIET=0
 REFRESH=0
-PATHS=""
+PATHS=()    # an ARRAY: a path may contain spaces (a string list split "my file.php" in two)
 RATIFIED_FLAG=""
 CLAIM_EXEMPT=""
 
@@ -86,7 +86,7 @@ while [ $# -gt 0 ]; do
     --refresh) REFRESH=1; shift ;;
     -h|--help) sed -n '2,30p' "$0"; exit 0 ;;
     -*)        echo "ownership-lint: unknown flag $1" >&2; exit 64 ;;
-    *)         PATHS="$PATHS $1"; shift ;;
+    *)         PATHS[${#PATHS[@]}]="$1"; shift ;;
   esac
 done
 
@@ -249,7 +249,7 @@ if [ -n "$BRACE_LINES" ]; then
   echo "$BRACE_LINES" >&2
 fi
 
-[ -n "$PATHS" ] || { say "ownership-lint: no paths given"; exit 0; }
+[ ${#PATHS[@]} -gt 0 ] || { say "ownership-lint: no paths given"; exit 0; }
 [ -n "$DEV" ] || { say "ownership-lint: \$$DEV_ENV_VAR unset and --dev not given — cannot judge lanes"; exit 1; }
 
 RC=0
@@ -322,7 +322,7 @@ is_claim_exempt() {
   return 1
 }
 
-for P in $PATHS; do
+for P in ${PATHS[@]+"${PATHS[@]}"}; do
   # Collect EVERY matching lane, not just the last one — a path legitimately
   # matches several lanes at different concerns (one owner's logic in a file,
   # another owner's styling tokens in that same file). The universal `*`
@@ -516,7 +516,7 @@ if [ -f "$CLAIMS" ]; then
     END { for (i = 1; i <= n; i++) if (st[ord[i]] != "closed" && st[ord[i]] != "abandoned") print rec[ord[i]] }
   ' "$CLAIMS")"
 
-  for P in $PATHS; do
+  for P in ${PATHS[@]+"${PATHS[@]}"}; do
     while IFS="$(printf '\t')" read -r STATE OPENED CDEV SLUG CGLOB NOTE CSESSION; do
       # Same terminal set as the reduction above — kept in step deliberately.
       case "${STATE:-}" in ''|'#'*|closed|abandoned) continue ;; esac

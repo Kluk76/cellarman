@@ -188,6 +188,36 @@ export PM_REPO_ROOT="$REPO_ROOT"
 export PM_PROFILE="$CONF"
 export DEV_ENV_VAR
 
+# Paths git sees as changed, ONE PER LINE, safe for names with spaces. `status
+# --porcelain` (no -z) quotes such names and renames print "old -> new", so the
+# old `awk '{print $NF}'` judged "src/my file.php" as "file.php"; untracked
+# directories arrive as "dir/" with --untracked-files=normal, hence =all. With
+# -z a rename is "XY new" NUL "old": the old name has no XY prefix and is
+# skipped. (A path containing a newline is the one thing this cannot carry.)
+_dirty_paths() {
+  git status --porcelain -z --untracked-files=all ${@+"$@"} 2>/dev/null | tr '\0' '\n' | awk '
+    skip { skip = 0; next }
+    length($0) < 4 { next }
+    { x = substr($0, 1, 1); y = substr($0, 2, 1)
+      if (x ~ /[RC]/ || y ~ /[RC]/) skip = 1
+      print substr($0, 4) }'
+}
+
+# The touched population as an ARRAY (names may contain spaces): the caller's
+# --paths (plus always-checked paths), else whatever git sees as changed.
+TOUCH_ARR=()
+_load_touch() {
+  local p
+  TOUCH_ARR=()
+  if [ ${#PATHS[@]} -gt 0 ]; then
+    TOUCH_ARR=("${PATHS[@]}")
+  else
+    while IFS= read -r p; do
+      [ -n "$p" ] && TOUCH_ARR[${#TOUCH_ARR[@]}]="$p"
+    done < <(_dirty_paths)
+  fi
+}
+
 RC=0
 WARN_N=0
 STOP_N=0
@@ -405,26 +435,26 @@ if [ -z "$MIG_DIR" ]; then
   ok namespace "n/a (no queue declared)"
 else
   if [ ${#MIGS[@]} -gt 0 ]; then
-    CAND="${MIGS[@]+${MIGS[*]}}"
+    CAND="$(printf '%s\n' "${MIGS[@]}")"
   else
     # default candidate set: drafts + anything unpushed + anything uncommitted
     CAND="$([ -n "$DRAFT_DIR" ] && ls "$DRAFT_DIR"/*.sql 2>/dev/null; \
             printf '%s\n' "$ONLY_DK" | sed "s|^|$MIG_DIR/|" ; \
-            git status --porcelain -- "$MIG_DIR" 2>/dev/null | awk '{print $NF}')"
+            _dirty_paths -- "$MIG_DIR")"
   fi
-  CAND=$(printf '%s\n' $CAND | grep '\.sql$' | sort -u)
+  CAND=$(printf '%s\n' "$CAND" | grep '\.sql$' | sort -u)
 
   if [ -z "$CAND" ]; then
     ok namespace "no new/edited migration to check"
   else
     # Extract every name this file would CREATE in a schema-global namespace.
     : > "$TMP/names"
-    for f in $CAND; do
+    while IFS= read -r f; do
       [ -f "$f" ] || continue
       grep -oiE 'CONSTRAINT[[:space:]]+`?[A-Za-z0-9_]+`?'      "$f" | awk '{print $NF}' | tr -d '`' >> "$TMP/names"
       grep -oiE 'CREATE[[:space:]]+TRIGGER[[:space:]]+`?[A-Za-z0-9_]+`?' "$f" | awk '{print $NF}' | tr -d '`' >> "$TMP/names"
       grep -oiE 'CREATE[[:space:]]+EVENT[[:space:]]+`?[A-Za-z0-9_]+`?'   "$f" | awk '{print $NF}' | tr -d '`' >> "$TMP/names"
-    done
+    done <<< "$CAND"
     sort -u "$TMP/names" -o "$TMP/names"
     NN=$(wc -l < "$TMP/names" | tr -d ' ')
 
@@ -484,7 +514,7 @@ fi
 sec "P4 · migration slug vs created objects"
 if [ -n "$CAND" ]; then
   DRIFT=0
-  for f in $CAND; do
+  while IFS= read -r f; do
     [ -f "$f" ] || continue
     B=$(basename "$f" .sql)
     SLUG=$(printf '%s' "$B" | sed "$DRIFT_SLUG_SED" | tr 'A-Z' 'a-z')
@@ -496,7 +526,7 @@ if [ -n "$CAND" ]; then
         warn slug-drift "$(basename "$f"): slug '$SLUG' creates table '$t' — name the drift in the PM record" ;;
       esac
     done
-  done
+  done <<< "$CAND"
   [ "$DRIFT" = 0 ] && ok slug-drift "no slug/table divergence in candidate migrations"
 elif [ -z "$MIG_DIR" ]; then
   ok slug-drift "n/a (no queue declared)"
@@ -509,12 +539,11 @@ sec "P5 · ownership"
 if [ ! -f "$OWNERSHIP_MAP" ]; then
   warn ownership "$OWNERSHIP_MAP absent — ownership is prose only${OWNERSHIP_PROSE:+ ($OWNERSHIP_PROSE)}; no machine check possible"
 else
-  TOUCH="${PATHS[@]+${PATHS[*]}}"
-  [ -z "$TOUCH" ] && TOUCH=$(git status --porcelain 2>/dev/null | awk '{print $NF}')
-  if [ -z "$TOUCH" ]; then
+  _load_touch
+  if [ ${#TOUCH_ARR[@]} -eq 0 ]; then
     ok ownership "no touched paths given and worktree clean"
   else
-    "$KIT_DIR/ownership-lint.sh" --map "$OWNERSHIP_MAP" --quiet $TOUCH
+    "$KIT_DIR/ownership-lint.sh" --map "$OWNERSHIP_MAP" --quiet "${TOUCH_ARR[@]}"
     case $? in
       0) ok ownership "all touched paths are within the acting dev's lane" ;;
       1) warn ownership "touched path(s) in a SHARED lane — run ownership-lint.sh for the list" ;;
@@ -528,7 +557,7 @@ fi
 # patched by both devs on orthogonal axes (host address; GNU-vs-BSD portability)
 # and neither could validate the other's environment. Touching one of these is a
 # handoff event, not a commit.
-TOUCHNOW=$(git status --porcelain 2>/dev/null | awk '{print $NF}')
+TOUCHNOW=$(_dirty_paths)
 for t in $SHARED_TOOLS; do
   # Whole-line match over a newline-separated list ($TOUCHNOW is one path per
   # line): the old space-padded `case` matched only when exactly one path was dirty.
@@ -663,13 +692,12 @@ if [ -z "$RAILS_TSV" ]; then
 elif [ ! -f "$RAILS_TSV" ]; then
   warn rails "$RAILS_TSV absent — UNMEASURED, not a clean pass. Run kernel/rails-index.sh (ideally with --refresh-graph at least once) before trusting this check."
 else
-  TOUCH8="${PATHS[@]+${PATHS[*]}}"
-  [ -z "$TOUCH8" ] && TOUCH8=$(git status --porcelain 2>/dev/null | awk '{print $NF}')
-  if [ -z "$TOUCH8" ]; then
+  _load_touch
+  if [ ${#TOUCH_ARR[@]} -eq 0 ]; then
     ok rails "no touched path/table given and worktree clean"
   else
     : > "$TMP/rails-cand"
-    for P in $TOUCH8; do
+    for P in "${TOUCH_ARR[@]}"; do
       printf '%s\n' "$P" >> "$TMP/rails-cand"
       case "$P" in */*) basename "$P" >> "$TMP/rails-cand" ;; esac
     done
