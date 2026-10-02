@@ -158,7 +158,10 @@ cd "$REPO_ROOT" || { echo "rails-index: cannot cd $REPO_ROOT" >&2; exit 64; }
 
 PM_INDEX="$REPO_ROOT/$PM_INDEX_REL"
 OUTPUT="$REPO_ROOT/$OUTPUT_REL"
-GRAPH_CACHE="$REPO_ROOT/$GRAPH_CACHE_REL"
+# Empty stays EMPTY: "$REPO_ROOT/" is a directory, and `[ -s dir ]` is true — an
+# unconfigured cache used to read as a present one and print "MEASURED".
+GRAPH_CACHE=""
+[ -n "$GRAPH_CACHE_REL" ] && GRAPH_CACHE="$REPO_ROOT/$GRAPH_CACHE_REL"
 
 if [ ! -f "$PM_INDEX" ]; then
   echo "rails-index: STOP — PF_PM_INDEX names '$PM_INDEX_REL', which does not exist at $PM_INDEX." >&2
@@ -506,6 +509,8 @@ INHERITED_ROWS=0
 if [ "$REFRESH_GRAPH" = 1 ]; then
   if [ -z "$EXPAND_CMD" ]; then
     echo "rails-index: WARN — --refresh-graph given but profile defines no PF_ARTEFACT_EXPAND. Expansion UNMEASURED." >&2
+  elif [ -z "$GRAPH_CACHE" ]; then
+    echo "rails-index: WARN — --refresh-graph given but profile defines no PF_ARTEFACT_GRAPH_CACHE to store it in. Expansion UNMEASURED." >&2
   else
     mkdir -p "$(dirname "$GRAPH_CACHE")" || exit 64
     if GRAPH_OUT=$(eval "$EXPAND_CMD" 2>"$TMP/graph.err") && [ -n "$GRAPH_OUT" ]; then
@@ -519,7 +524,7 @@ if [ "$REFRESH_GRAPH" = 1 ]; then
   fi
 fi
 
-if [ -s "$GRAPH_CACHE" ]; then
+if [ -n "$GRAPH_CACHE" ] && [ -f "$GRAPH_CACHE" ] && [ -s "$GRAPH_CACHE" ]; then
   cat > "$TMP/expand.awk" << 'AWK_EOF'
 BEGIN {
   FS = "\t"
@@ -579,11 +584,19 @@ AWK_EOF
   awk -v GRAPHFILE="$GRAPH_CACHE" -v MAXITER="$MAX_ITER" -f "$TMP/expand.awk" "$TMP/base.tsv" \
       > "$TMP/inherited.tsv" 2> "$TMP/expand.stats"
   cat "$TMP/expand.stats" >&2
-  EXPANSION_MEASURED=1
   INHERITED_ROWS=$(wc -l < "$TMP/inherited.tsv" | tr -d ' ')
+  # A cache that yields no edge is not a measured graph: every table rail
+  # would silently stop at the table. "edges=0" is UNMEASURED, never MEASURED.
+  NEDGES=$(sed -n 's/^EXPAND-STATS.*edges=\([0-9][0-9]*\).*/\1/p' "$TMP/expand.stats" | tail -1)
+  if [ "${NEDGES:-0}" -gt 0 ]; then
+    EXPANSION_MEASURED=1
+  else
+    printf '\n\033[33m● UNMEASURED — the graph cache at %s holds 0 usable edges.\033[0m\n\n' "$GRAPH_CACHE_REL" >&2
+  fi
 else
   printf '\n'
-  printf '\033[33m● UNMEASURED — no artefact-graph cache at %s and --refresh-graph not given.\033[0m\n' "$GRAPH_CACHE_REL" >&2
+  if [ -n "$GRAPH_CACHE_REL" ]; then CACHE_WHERE=" at $GRAPH_CACHE_REL"; else CACHE_WHERE=" (PF_ARTEFACT_GRAPH_CACHE is not set)"; fi
+  printf '\033[33m● UNMEASURED — no artefact-graph cache%s and --refresh-graph not given.\033[0m\n' "$CACHE_WHERE" >&2
   printf '  Writing DIRECT rails only. A rail posed on a TABLE will NOT propagate to the\n' >&2
   printf '  views that read it — transitive (via:) rows are absent, not zero-by-fact.\n' >&2
   printf '  Re-run with --refresh-graph to compute them.\n' >&2
@@ -607,6 +620,6 @@ if [ "$EXPANSION_MEASURED" = 1 ]; then
   printf '  expansion            : MEASURED (graph cache %s)\n' "$GRAPH_CACHE_REL"
   exit 0
 else
-  printf '  expansion            : \033[33mUNMEASURED\033[0m (no cache — run --refresh-graph)\n'
+  printf '  expansion            : \033[33mUNMEASURED\033[0m (no usable graph cache — run --refresh-graph)\n'
   exit 1
 fi

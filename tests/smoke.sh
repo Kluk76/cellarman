@@ -269,6 +269,22 @@ if command -v mawk >/dev/null 2>&1; then
 else skip A8 "mawk not installed (awk-flavour case)"; fi
 
 ###############################################################################
+# A7 — no graph cache configured (or a cache without edges) is UNMEASURED
+###############################################################################
+mk_proj pa7 remote
+printf -- '- 🔴 `ref_users` is read by two views\n' >> "$INDEX"
+prof_set PF_ARTEFACT_GRAPH_CACHE '""'
+run bash "$KITREL/kernel/rails-index.sh"; strip
+{ [ "$RC" = 1 ] && has 'UNMEASURED' "$OUTT" && lacks 'MEASURED (graph cache' "$OUTT" && lacks 'edges=0' "$OUTT"; }; check A7 "PF_ARTEFACT_GRAPH_CACHE unset: UNMEASURED, rc=1 (rc=$RC)" $?
+prof_set PF_ARTEFACT_GRAPH_CACHE '"claude-brain/pm-kit/state/artefact-graph.tsv"'
+mkdir -p "$KITREL/state"; printf '\n\n' > "$KITREL/state/artefact-graph.tsv"
+run bash "$KITREL/kernel/rails-index.sh"; strip
+{ [ "$RC" = 1 ] && has '0 usable edges' "$OUTT" && lacks 'MEASURED (graph cache' "$OUTT"; }; check A7 "a cache with no edge is UNMEASURED (rc=$RC)" $?
+printf 'ref_users\tv_users_summary\n' > "$KITREL/state/artefact-graph.tsv"
+run bash "$KITREL/kernel/rails-index.sh"; strip
+{ [ "$RC" = 0 ] && has 'expansion  *: MEASURED' "$OUTT" && has 'v_users_summary' "$KITREL/state/RAILS-BY-ARTEFACT.tsv"; }; check A7 "a cache with an edge is MEASURED and expands (rc=$RC)" $?
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"
