@@ -44,6 +44,17 @@ FAILS=0
 warn() { echo "pm-doctor: WARN — $*"; WARNINGS=$((WARNINGS+1)); }
 fail() { echo "pm-doctor: FAIL — $*"; FAILS=$((FAILS+1)); }
 ok()   { echo "pm-doctor: ok   — $*"; }
+# A check that shells out to a tool the machine lacks must say UNMEASURED: its
+# command's error is usually swallowed (2>/dev/null) and what remains is an
+# empty string that reads as "nothing found" — a false green. Returns 1 (after
+# a WARN) when any named tool is missing, so the caller skips the check.
+_need() {
+    local c="$1" t; shift
+    for t in "$@"; do
+        command -v "$t" >/dev/null 2>&1 || { warn "$c UNMEASURED — required tool '$t' not found on PATH"; return 1; }
+    done
+    return 0
+}
 
 # ── 1. Index byte budget ─────────────────────────────────────────────────────
 if [ ! -f "$PM_INDEX" ]; then
@@ -117,11 +128,14 @@ fi
 # monolithic block — splitting it would destroy the thing it exists for. Its
 # size is check 7's business, and letting check 6 shout about it buries the
 # real signal under six lines of noise.
-if [ -d "$PM_MEMORY_DIR" ]; then
+if [ -d "$PM_MEMORY_DIR" ] && _need "topic-file size check (6)" find wc awk sort head; then
     TOPIC_WARN="${PM_TOPIC_WARN:-81920}"
+    # `find -printf` is GNU-only (BSD find errors, the 2>/dev/null hid it and the
+    # check printed "ok" unmeasured): list with -print, size with wc -c.
     BIG=$(find "$PM_MEMORY_DIR" \
               ${PM_ARCHIVE_DIR:+-path "$PM_ARCHIVE_DIR" -prune -o} \
-              -name '*.md' -type f -printf '%s\t%P\n' 2>/dev/null \
+              -name '*.md' -type f -print 2>/dev/null \
+          | while IFS= read -r f; do printf '%s\t%s\n' "$(wc -c < "$f" | tr -d ' ')" "${f#"$PM_MEMORY_DIR"/}"; done \
           | awk -F'\t' -v max="$TOPIC_WARN" '$1 > max' \
           | sort -rn | head -10 \
           | awk -F'\t' '{ printf "    %4d KB  %s\n", $1/1024, $2 }')
@@ -139,11 +153,12 @@ fi
 # because nothing weighs them — check 1 measures the index alone, and check 5
 # never calls them orphans since the archive README references them.
 # Skipped entirely when PM_ARCHIVE_DIR is unset.
-if [ -n "${PM_ARCHIVE_DIR:-}" ] && [ -d "$PM_ARCHIVE_DIR" ]; then
+if [ -n "${PM_ARCHIVE_DIR:-}" ] && [ -d "$PM_ARCHIVE_DIR" ] && _need "archive retention check (7)" find wc awk; then
     ARCH_MAX="${PM_ARCHIVE_MAX:-3}"
     ARCH_GLOB="${PM_ARCHIVE_GLOB:-index-verbatim-*.md}"
     ARCH_N=$(find "$PM_ARCHIVE_DIR" -maxdepth 1 -name "$ARCH_GLOB" -type f 2>/dev/null | wc -l)
-    ARCH_KB=$(find "$PM_ARCHIVE_DIR" -maxdepth 1 -name "$ARCH_GLOB" -type f -printf '%s\n' 2>/dev/null \
+    ARCH_KB=$(find "$PM_ARCHIVE_DIR" -maxdepth 1 -name "$ARCH_GLOB" -type f -print 2>/dev/null \
+              | while IFS= read -r f; do wc -c < "$f"; done \
               | awk '{ s += $1 } END { printf "%d", (s+0)/1024 }')
     if [ "${ARCH_N:-0}" -gt "$ARCH_MAX" ]; then
         warn "${ARCH_N} archived snapshot(s) matching '${ARCH_GLOB}' (> ${ARCH_MAX}), ${ARCH_KB} KB — they are reconstructible with 'git show <sha>:<index>'; keep the newest ${ARCH_MAX} and replace the rest with a git-show line"

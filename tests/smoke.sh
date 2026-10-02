@@ -193,6 +193,23 @@ run bash "$KITREL/catalog.sh" --grep tailword
 rm -f "$MEMDIR/many-triggers.md"
 
 ###############################################################################
+# B1 — doctor sizes without `find -printf`; a missing tool is UNMEASURED, not ok
+###############################################################################
+mk_proj pb1 remote
+mkdir -p "$SB/noprintf" "$MEMDIR/index-relocated-detail"
+printf '#!/bin/sh\nfor a in "$@"; do [ "$a" = -printf ] && { echo "find: unknown primary or operator" >&2; exit 1; }; done\nexec %s "$@"\n' "$(command -v find)" > "$SB/noprintf/find"; chmod +x "$SB/noprintf/find"
+printf '# t\n' > "$MEMDIR/journal.md"
+head -c 92160 /dev/zero | tr '\0' 'x' > "$MEMDIR/big-topic.md"; printf '\nbig-topic.md\n' >> "$INDEX"
+for i in 1 2 3 4; do head -c 10240 /dev/zero | tr '\0' 'x' > "$MEMDIR/index-relocated-detail/index-verbatim-$i.md"; done
+run env PATH="$SB/noprintf:$PATH" bash "$KITREL/doctor.sh"
+{ has 'topic file(s) over 80 KB' && has '90 KB  big-topic.md'; }; check B1 "check 6 reports an oversized topic file with a printf-less find" $?
+{ has '4 archived snapshot' && has '40 KB'; }; check B1 "check 7 reports archive size with a printf-less find" $?
+mk_toolpath "$SB/nofind" $(for t in $COMMON_TOOLS; do [ "$t" = find ] || printf '%s ' "$t"; done)
+run env PATH="$SB/nofind" "$(command -v bash)" "$KITREL/doctor.sh"
+{ has "check (6) UNMEASURED — required tool 'find'" && lacks 'no topic file over'; }; check B1 "a missing find is UNMEASURED, never 'ok — no topic file over' (rc=$RC)" $?
+rm -rf "$MEMDIR/big-topic.md" "$MEMDIR/index-relocated-detail"
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"
