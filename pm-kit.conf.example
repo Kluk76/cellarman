@@ -6,6 +6,10 @@
 # Paths here may use those variables. Zero project knowledge lives in the kit
 # scripts; everything instance-specific lives HERE.
 
+# PM_OFFLINE=1 in the environment (not set in this file) makes pm-sync and claim.sh
+# commit locally and skip the push; see README, "Running it without touching
+# anything outside the repository".
+
 # The always-read index the PM loads on every invocation.
 PM_INDEX="$REPO_ROOT/claude-brain/agents/acme-pm-memory.md"
 

@@ -33,6 +33,16 @@ SB="$(mktemp -d "${TMPDIR:-/tmp}/quickstart-sandbox.XXXXXX")" || { echo "cannot 
 SB="$(cd "$SB" && pwd)"
 trap 'rm -rf "$SB"' EXIT
 
+# Offline by default (PM_OFFLINE=1), with a recording fake ssh/scp/curl/wget/nc
+# first on PATH: a suite that reaches for the network fails at its last assertion.
+# A case that deliberately exercises a remote leg (against a local bare repo or a
+# stubbed target) unsets the switch itself and says so in its name.
+NETLOG="$SB/net-calls.log"; : > "$NETLOG"; FAKENET="$SB/fakenet"; mkdir -p "$FAKENET"
+for _t in ssh scp curl wget nc; do
+  printf '#!/bin/sh\necho "%s $*" >> "%s"\nexit 255\n' "$_t" "$NETLOG" > "$FAKENET/$_t"; chmod +x "$FAKENET/$_t"
+done
+export PM_OFFLINE=1; PATH="$FAKENET:$PATH"
+
 export GIT_AUTHOR_NAME="Test Dev" GIT_AUTHOR_EMAIL=dev@example.com GIT_COMMITTER_NAME="Test Dev" GIT_COMMITTER_EMAIL=dev@example.com
 export GIT_CONFIG_NOSYSTEM=1
 unset PM_DEV PM_PROFILE PM_REPO_ROOT ACME_DEV CLAUDE_CODE_SESSION_ID 2>/dev/null
@@ -96,10 +106,10 @@ grep -q 'uncommitted' "$SB/p1.tmp/pf.log"; check "pass 1: the pre-flight log nam
 ! grep -qE 'STOP|NOT RUN' "$SB/p1.tmp/pf.log"; check "pass 1: no STOP and nothing that did not run" 0 "$?"
 grep -q '0 fail(s)' "$SB/p1.tmp/doctor.log"; check "pass 1: the doctor log says 0 fail(s)" 0 "$?"
 
-echo "== pass 2: a remote that has nothing yet; the publish block pushes =="
+echo "== pass 2: a remote that has nothing yet; the publish block pushes [PM_OFFLINE unset: pushes to a local bare repo] =="
 mk p2 remote
 cat "$SB/install.sh" "$SB/publish.sh" > "$SB/run2.sh"
-(cd "$R" && K="$C" HOME="$H" TMPDIR="$SB/p2.tmp" bash "$SB/run2.sh" > "$SB/out2" 2>&1); rc=$?
+(cd "$R" && env -u PM_OFFLINE K="$C" HOME="$H" TMPDIR="$SB/p2.tmp" bash "$SB/run2.sh" > "$SB/out2" 2>&1); rc=$?
 check "the install and publish blocks end cleanly together" 0 "$rc"
 check "pass 2: rails-index exit as the README states" "$EXP_RAILS" "$(exitline "$SB/out2" rails)"
 check "pass 2: doctor exit as the README states" "$EXP_DOC" "$(exitline "$SB/out2" doctor)"
@@ -113,6 +123,7 @@ echo "== the README's own words about the outcome are true =="
 grep -q 'single-clone mode' "$README"; check "README names single-clone mode" 0 "$?"
 grep -q 'Exit 3' "$README"; check "README explains exit 3" 0 "$?"
 
+check "no test reached for the network (fake ssh/scp/curl/wget/nc never called)" "" "$(cat "$NETLOG")"
 echo
 echo "quickstart.sh: $NPASS passed, $NFAIL failed"
 [ "$NFAIL" -eq 0 ]

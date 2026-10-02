@@ -158,6 +158,19 @@ The layout is fixed in one respect: the scripts expect the kit at
   pre-flight exits 3; it does not print a pass.
 - Windows: untested outside WSL.
 
+### Running it without touching anything outside the repository
+
+Set `PM_OFFLINE=1` in the environment and no script in the kit opens a network
+connection or contacts a remote host. The pre-flight skips `git fetch`, the
+deploy-target leg (`ssh`, or the profile's `PF_QUEUE_TARGET` command) and the live
+schema probe (`PF_NS_TAKEN`), and reports each as UNMEASURED with the text
+"offline (PM_OFFLINE=1)": a skipped leg is never printed as ok, so the exit code
+is 1 (never 0 by omission, never 2 by itself). `pm-sync` and `claim.sh --push`
+commit locally, do not push, and say so. It is an environment switch, not a
+profile variable; the doctor reads files only and needs no switch. A run that
+needs the remote (the divergence check against a shared branch) is by definition
+not measured while the switch is on.
+
 ## What a first consult looks like
 
 Illustrative: the shape is what the kernel asks for, the content is invented.

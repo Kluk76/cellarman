@@ -275,6 +275,8 @@ if [ -n "$BRANCH" ]; then
 fi
 if [ -z "$UPSTREAM" ] || [ -z "$REMOTE" ] || [ -z "$MERGEREF" ]; then
     echo "[pm-sync] no remote/upstream configured — committed locally, push skipped"
+elif [ "${PM_OFFLINE:-}" = 1 ]; then
+    echo "[pm-sync] offline (PM_OFFLINE=1) — committed locally, push NOT attempted (nothing was contacted)"
 else
     FOREIGN=""
     while IFS= read -r sha; do

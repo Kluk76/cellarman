@@ -83,6 +83,11 @@ else
 fi
 
 DO_FETCH=1; DO_PROBE=0; DO_JSON=0
+# PM_OFFLINE=1: nothing here may open a network connection or contact a remote
+# host. Every leg that would (git fetch, the deploy-target leg, the live schema
+# probe) is skipped and reported UNMEASURED with the text "offline (PM_OFFLINE=1)":
+# a skipped leg is never printed as ok, and never as a finding either.
+OFFLINE=0; [ "${PM_OFFLINE:-}" = 1 ] && OFFLINE=1
 PATHS=(); MIGS=()
 
 while [ $# -gt 0 ]; do
@@ -328,6 +333,8 @@ HAVE_REMOTE=0
 git remote 2>/dev/null | grep -Fxq -- "$UP_REMOTE" && HAVE_REMOTE=1
 if [ "$HAVE_REMOTE" = 0 ]; then
   : # nothing to fetch from; the shared-reference check below says so once
+elif [ "$DO_FETCH" = 1 ] && [ "$OFFLINE" = 1 ]; then
+  unmeasured fetch "offline (PM_OFFLINE=1): git fetch not run — divergence below measured against a possibly stale remote ref"
 elif [ "$DO_FETCH" = 1 ]; then
   if git fetch --quiet "$UP_REMOTE" 2>/dev/null; then ok fetch "fetched $UP_REMOTE"
   else warn fetch "git fetch failed (offline? host unreachable?) — divergence below may be stale"; fi
@@ -482,6 +489,8 @@ else
   # Declared by either one; neither declared is n/a.
   if [ -z "$SSH_TARGET" ] && [ -z "$QUEUE_TARGET_CMD" ]; then
     ok queue-target "n/a (no deploy target declared)"
+  elif [ "$OFFLINE" = 1 ]; then
+    unmeasured queue-target "offline (PM_OFFLINE=1): the deploy-target leg was not run (no ssh, no PF_QUEUE_TARGET command) — target side of the three-way diff NOT measured"
   elif [ "$DO_PROBE" = 1 ]; then
     if [ -n "$QUEUE_TARGET_CMD" ]; then
       TARGET_WHO="the PF_QUEUE_TARGET command"
@@ -553,6 +562,9 @@ else
 
     if [ "$NN" = 0 ]; then
       ok namespace "candidate migration(s) declare no schema-global name"
+    elif [ "$OFFLINE" = 1 ] && [ "$DO_PROBE" = 1 ] && [ -n "$NS_TAKEN_CMD" ]; then
+      unmeasured namespace "offline (PM_OFFLINE=1): the live schema probe (PF_NS_TAKEN) was not run; falling back to the repo-corpus lower bound"
+      DO_PROBE=0
     elif [ "$DO_PROBE" = 1 ] && [ -z "$NS_TAKEN_CMD" ]; then
       unmeasured namespace "profile defines no namespace probe (PF_NS_TAKEN): the real schema was not queried; falling back to the repo-corpus lower bound"
       DO_PROBE=0

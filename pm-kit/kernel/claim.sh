@@ -261,6 +261,11 @@ if [ -z "$remote" ] || [ -z "$mergeref" ] || [ -z "$upstream" ]; then
   exit 0
 fi
 
+if [ "${PM_OFFLINE:-}" = 1 ]; then
+  echo "claim.sh: offline (PM_OFFLINE=1) — committed locally, push NOT attempted (nothing was contacted)"
+  exit 0
+fi
+
 # Guard: a push publishes the whole branch, not just this commit.
 foreign=""
 while IFS= read -r sha; do

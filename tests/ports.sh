@@ -13,6 +13,16 @@ ROOT="$(cd "$HERE/.." && pwd)"
 SB="$(mktemp -d "${TMPDIR:-/tmp}/ports-sandbox.XXXXXX")" || { echo "cannot create sandbox" >&2; exit 2; }
 trap 'rm -rf "$SB"' EXIT
 
+# Offline by default (PM_OFFLINE=1), with a recording fake ssh/scp/curl/wget/nc
+# first on PATH: a suite that reaches for the network fails at its last assertion.
+# A case that deliberately exercises a remote leg (against a local bare repo or a
+# stubbed target) unsets the switch itself and says so in its name.
+NETLOG="$SB/net-calls.log"; : > "$NETLOG"; FAKENET="$SB/fakenet"; mkdir -p "$FAKENET"
+for _t in ssh scp curl wget nc; do
+  printf '#!/bin/sh\necho "%s $*" >> "%s"\nexit 255\n' "$_t" "$NETLOG" > "$FAKENET/$_t"; chmod +x "$FAKENET/$_t"
+done
+export PM_OFFLINE=1; PATH="$FAKENET:$PATH"
+
 NPASS=0; NFAIL=0; NSKIP=0
 pass() { NPASS=$((NPASS + 1)); echo "PASS  $1"; }
 fail() { NFAIL=$((NFAIL + 1)); echo "FAIL  $1${2:+ — $2}"; }
@@ -69,12 +79,16 @@ ledger() {
 }
 # sync <proj> <session|-> [args...]: run pm-sync as that session; "-" = no stdin.
 # Output lands in $SB/out and $SB/err; rc in SYNC_RC.
+# UNSET_OFFLINE="-u PM_OFFLINE" (set by a case, then cleared) runs one sync or claim
+# with the offline switch off, for the cases that exercise a push to a local bare repo.
+UNSET_OFFLINE=""
+# shellcheck disable=SC2086  # UNSET_OFFLINE is a deliberate word list ("-u PM_OFFLINE" or empty)
 sync_run() {
   local p="$1" s="$2"; shift 2
   if [ "$s" = "-" ]; then
-    (cd "$p" && PM_SYNC_NO_DOCTOR=1 bash claude-brain/pm-sync.sh "$@" < /dev/null) > "$SB/out" 2> "$SB/err"
+    (cd "$p" && env $UNSET_OFFLINE PM_SYNC_NO_DOCTOR=1 bash claude-brain/pm-sync.sh "$@" < /dev/null) > "$SB/out" 2> "$SB/err"
   else
-    (cd "$p" && printf '{"session_id":"%s"}' "$s" | PM_SYNC_NO_DOCTOR=1 bash claude-brain/pm-sync.sh "$@") > "$SB/out" 2> "$SB/err"
+    (cd "$p" && printf '{"session_id":"%s"}' "$s" | env $UNSET_OFFLINE PM_SYNC_NO_DOCTOR=1 bash claude-brain/pm-sync.sh "$@") > "$SB/out" 2> "$SB/err"
   fi
   SYNC_RC=$?
 }
@@ -100,19 +114,29 @@ P="$(mkproj i)"; before="$(remote_head i)"
 echo "wip" >> "$P/src/code.txt"; git -C "$P" commit -q -am "WIP do not push"
 echo "note" >> "$P/claude-brain/agents/test-pm-memory/journal.md"
 ledger "$P" s1 claude-brain/agents/test-pm-memory/journal.md
-n0="$(nlog "$P")"; sync_run "$P" s1
-check "(i) rc 0" 0 "$SYNC_RC"
+n0="$(nlog "$P")"; UNSET_OFFLINE="-u PM_OFFLINE"; sync_run "$P" s1; UNSET_OFFLINE=""
+check "(i) rc 0 [PM_OFFLINE unset: pushes to a local bare repo]" 0 "$SYNC_RC"
 check "(i) memory commit made" "$((n0 + 1))" "$(nlog "$P")"
 contains "(i) PUSH REFUSED said on stderr" "$SB/err" "PUSH REFUSED"
 check "(i) remote unchanged" "$before" "$(remote_head i)"
 check "(i) the code commit was not pushed" "no" "$(git --git-dir="$SB/i-remote.git" log --format=%s refs/heads/main | grep -q 'WIP do not push' && echo yes || echo no)"
 
+# (i-c) PM_OFFLINE=1 (the suite default), remote configured, clean branch: commit local, no push
+P="$(mkproj ic)"; before="$(remote_head ic)"
+echo "note" >> "$P/claude-brain/agents/test-pm-memory/journal.md"
+ledger "$P" s1 claude-brain/agents/test-pm-memory/journal.md
+n0="$(nlog "$P")"; sync_run "$P" s1
+check "(i-c) PM_OFFLINE=1: rc 0" 0 "$SYNC_RC"
+check "(i-c) PM_OFFLINE=1: the memory commit is made locally" "$((n0 + 1))" "$(nlog "$P")"
+check "(i-c) PM_OFFLINE=1: the remote is unchanged" "$before" "$(remote_head ic)"
+contains "(i-c) PM_OFFLINE=1: says the push was not attempted" "$SB/out" "offline (PM_OFFLINE=1)"
+
 # (i-b) same shape, clean branch => pushed
 P="$(mkproj ib)"; before="$(remote_head ib)"
 echo "note" >> "$P/claude-brain/agents/test-pm-memory/journal.md"
 ledger "$P" s1 claude-brain/agents/test-pm-memory/journal.md
-sync_run "$P" s1
-check "(i-b) rc 0" 0 "$SYNC_RC"
+UNSET_OFFLINE="-u PM_OFFLINE"; sync_run "$P" s1; UNSET_OFFLINE=""
+check "(i-b) rc 0 [PM_OFFLINE unset: pushes to a local bare repo]" 0 "$SYNC_RC"
 check "(i-b) memory-only branch IS pushed" "$(git -C "$P" rev-parse HEAD)" "$(remote_head ib)"
 
 # (ii) only a new untracked topic file
@@ -203,9 +227,10 @@ printf '{"session_id":"../evil","tool_input":{"file_path":"%s/claude-brain/agent
 check "ledger: a session id with path characters is ignored" "no" "$([ -e "$P/.git/evil.paths" ] && echo yes || echo no)"
 
 echo "== claim.sh =="
+# shellcheck disable=SC2086  # UNSET_OFFLINE is a deliberate word list
 CLAIM() { # CLAIM <proj> <args...>   (env: T_DEV, T_SESSION as set by the caller)
   local p="$1"; shift
-  (cd "$p" && bash claude-brain/pm-kit/kernel/claim.sh "$@") > "$SB/cout" 2> "$SB/cerr"
+  (cd "$p" && env $UNSET_OFFLINE bash claude-brain/pm-kit/kernel/claim.sh "$@") > "$SB/cout" 2> "$SB/cerr"
   CRC=$?
 }
 P="$(mkproj cl)"; CF="$P/claude-brain/CLAIMS.tsv"; base="$(grep -vc '^#' "$CF")"
@@ -264,15 +289,22 @@ check "claim: file without trailing newline: two distinct rows" "2" "$(grep -v '
 
 # opt-in push, and the guard
 P="$(mkproj push1)"; before="$(remote_head push1)"
-CLAIM "$P" open pushed --intent x --push
-check "claim --push on a clean branch: rc 0" 0 "$CRC"
+UNSET_OFFLINE="-u PM_OFFLINE"; CLAIM "$P" open pushed --intent x --push; UNSET_OFFLINE=""
+check "claim --push on a clean branch [PM_OFFLINE unset: pushes to a local bare repo]: rc 0" 0 "$CRC"
 check "claim --push: remote advanced to HEAD" "$(git -C "$P" rev-parse HEAD)" "$(remote_head push1)"
 P="$(mkproj push2)"; before="$(remote_head push2)"
 echo "wip" >> "$P/src/code.txt"; git -C "$P" commit -q -am "unrelated unpushed work"
-CLAIM "$P" open pushed --intent x --push
-check "claim --push with other work ahead: refused (rc 1)" 1 "$CRC"
+UNSET_OFFLINE="-u PM_OFFLINE"; CLAIM "$P" open pushed --intent x --push; UNSET_OFFLINE=""
+check "claim --push with other work ahead [PM_OFFLINE unset]: refused (rc 1)" 1 "$CRC"
 contains "claim --push refusal says so on stderr" "$SB/cerr" "PUSH REFUSED"
 check "claim --push refusal: remote unchanged" "$before" "$(remote_head push2)"
+# PM_OFFLINE=1 (the suite default): the commit is local, the push is not attempted
+P="$(mkproj pushoff)"; before="$(remote_head pushoff)"; n0="$(nlog "$P")"
+CLAIM "$P" open offline --intent x --push
+check "claim --push with PM_OFFLINE=1 and a remote configured: rc 0" 0 "$CRC"
+check "claim --push with PM_OFFLINE=1: the claim is committed locally" "$((n0 + 1))" "$(nlog "$P")"
+check "claim --push with PM_OFFLINE=1: the remote is unchanged" "$before" "$(remote_head pushoff)"
+contains "claim --push with PM_OFFLINE=1: says the push was not attempted" "$SB/cout" "offline (PM_OFFLINE=1)"
 P="$(mkproj push3 noremote)"
 CLAIM "$P" open local --intent x --push
 check "claim --push with no remote: rc 0, skipped" 0 "$CRC"
@@ -340,6 +372,7 @@ mkdir -p "$SB/bare"; git -C "$SB/bare" init -q
 check "lint with no claims path configured: rc 3 (did not run)" 3 "$rc"
 contains "lint says NOT MEASURED" "$SB/nc" "NOT MEASURED"
 
+check "no test reached for the network (fake ssh/scp/curl/wget/nc never called)" "" "$(cat "$NETLOG")"
 echo
 echo "ports.sh: $NPASS passed, $NFAIL failed, $NSKIP skipped"
 [ "$NFAIL" -eq 0 ]

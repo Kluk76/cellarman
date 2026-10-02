@@ -25,6 +25,16 @@ SB="$(cd "$SB" && pwd)"
 cleanup() { [ "${SMOKE_KEEP:-0}" = 1 ] && echo "smoke: sandbox kept at $SB" || rm -rf "$SB"; }
 trap cleanup EXIT
 
+# Offline by default (PM_OFFLINE=1), with a recording fake ssh/scp/curl/wget/nc
+# first on PATH: a suite that reaches for the network fails at its last assertion.
+# A case that deliberately exercises a remote leg (against a local bare repo or a
+# stubbed target) unsets the switch itself and says so in its name.
+NETLOG="$SB/net-calls.log"; : > "$NETLOG"; FAKENET="$SB/fakenet"; mkdir -p "$FAKENET"
+for _t in ssh scp curl wget nc; do
+  printf '#!/bin/sh\necho "%s $*" >> "%s"\nexit 255\n' "$_t" "$NETLOG" > "$FAKENET/$_t"; chmod +x "$FAKENET/$_t"
+done
+export PM_OFFLINE=1; PATH="$FAKENET:$PATH"
+
 export GIT_AUTHOR_NAME=Smoke GIT_AUTHOR_EMAIL=smoke@example.com
 export GIT_COMMITTER_NAME=Smoke GIT_COMMITTER_EMAIL=smoke@example.com
 export HOME="$SB/home"; mkdir -p "$HOME"
@@ -367,8 +377,8 @@ mkdir -p "$KITREL/state"; printf 'ref_users\tv_users_summary\n' > "$KITREL/state
 printf -- '- 🔴 `ref_users` is read by two views · register: `dev-handoff-register.md`\n' >> "$INDEX"
 run bash "$KITREL/kernel/rails-index.sh"
 commit_all "clear fixture"
-run env ACME_DEV=a bash bin/pm-preflight.sh; strip
-{ [ "$RC" = 0 ] && has 'CLEAR' "$OUTT"; }; check 1.6 "exit 0 (CLEAR) is reachable on a clean, fully-measured state (rc=$RC)" $?
+run env -u PM_OFFLINE ACME_DEV=a bash bin/pm-preflight.sh; strip
+{ [ "$RC" = 0 ] && has 'CLEAR' "$OUTT"; }; check 1.6 "exit 0 (CLEAR) is reachable on a clean, fully-measured state, with the fetch leg run against the local remote [PM_OFFLINE unset] (rc=$RC)" $?
 { has 'info *ownership.*NOT measured for this build' "$OUTT" && has 'info *rails.*NOT measured for this build' "$OUTT" && lacks 'ok   ownership' "$OUTT" && lacks 'ok   rails' "$OUTT"; }; check amb-b "no --paths and a clean tree: ownership and rails are reported NOT measured, never ok" $?
 
 ###############################################################################
@@ -853,20 +863,35 @@ printf 'SELECT 1;\n' > db/migrations/202601010000_a_one.sql; printf 'SELECT 2;\n
 commit_all "two queued changes"
 prof_set PF_TARGET_HOST '"nobody@host.invalid"'
 prof_set PF_QUEUE_TARGET "'printf \"202601010000_a_one.sql\\n202601010001_a_two.sql\\n\"'"
-run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
-{ has 'ok   queue-target.*deploy target == ' "$OUTT"; }; check A9c "PF_QUEUE_TARGET is used, not an ssh to PF_TARGET_HOST (target == reference)" $?
+run env -u PM_OFFLINE ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
+{ has 'ok   queue-target.*deploy target == ' "$OUTT"; }; check A9c "PF_QUEUE_TARGET is used, not an ssh to PF_TARGET_HOST (target == reference) [PM_OFFLINE unset: stubbed target command]" $?
 prof_set PF_QUEUE_TARGET "'printf \"202601010000_a_one.sql\\n\"'"
-run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
-{ has 'WARN queue-target.*not yet on the deploy target' "$OUTT" && has '202601010001_a_two.sql' "$OUTT"; }; check A9c "a queued change missing from the target is named" $?
+run env -u PM_OFFLINE ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
+{ has 'WARN queue-target.*not yet on the deploy target' "$OUTT" && has '202601010001_a_two.sql' "$OUTT"; }; check A9c "a queued change missing from the target is named [PM_OFFLINE unset: stubbed target command]" $?
 prof_set PF_QUEUE_TARGET "'printf \"202601010000_a_one.sql\\n202601010001_a_two.sql\\n202601010099_a_rogue.sql\\n\"'"
-run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
-{ [ "$RC" = 2 ] && has 'STOP queue-target.*on the deploy target and NOT on' "$OUTT" && has 'rogue' "$OUTT"; }; check A9c "a change on the target that git does not have STOPs (rc=$RC)" $?
+run env -u PM_OFFLINE ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
+{ [ "$RC" = 2 ] && has 'STOP queue-target.*on the deploy target and NOT on' "$OUTT" && has 'rogue' "$OUTT"; }; check A9c "a change on the target that git does not have STOPs (rc=$RC) [PM_OFFLINE unset: stubbed target command]" $?
 prof_set PF_QUEUE_TARGET "'false'"
-run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
-{ has 'UNMEASURED queue-target.*PF_QUEUE_TARGET command failed' "$OUTT"; }; check A9c "a failing PF_QUEUE_TARGET command is UNMEASURED" $?
+run env -u PM_OFFLINE ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
+{ has 'UNMEASURED queue-target.*PF_QUEUE_TARGET command failed' "$OUTT"; }; check A9c "a failing PF_QUEUE_TARGET command is UNMEASURED [PM_OFFLINE unset: stubbed target command]" $?
 prof_set PF_QUEUE_TARGET '""'; prof_set PF_TARGET_HOST '""'
-run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
-{ has 'ok   queue-target.*n/a (no deploy target declared)' "$OUTT"; }; check A9c "neither declared: n/a" $?
+run env -u PM_OFFLINE ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --probe-db; strip
+{ has 'ok   queue-target.*n/a (no deploy target declared)' "$OUTT"; }; check A9c "neither declared: n/a [PM_OFFLINE unset: stubbed target command]" $?
+# (c2) PM_OFFLINE=1: no leg that reaches a remote runs, each says so as UNMEASURED
+mk_proj pa9o remote
+mkdir -p db/migrations "$SB/sshrec"
+printf 'ALTER TABLE t ADD CONSTRAINT fk_offline_probe FOREIGN KEY (a) REFERENCES u (id);\n' > db/migrations/202601010002_a_probe.sql
+prof_set PF_TARGET_HOST '"nobody@host.invalid"'; prof_set PF_QUEUE_TARGET '""'
+prof_set PF_NS_TAKEN "'touch $SB/nsprobe; echo fk_offline_probe'"
+printf '#!/bin/sh\necho "ssh $*" >> "%s/calls"\nexit 255\n' "$SB/sshrec" > "$SB/sshrec/ssh"; chmod +x "$SB/sshrec/ssh"; : > "$SB/sshrec/calls"; rm -f "$SB/nsprobe"
+run env PATH="$SB/sshrec:$PATH" PM_OFFLINE=1 ACME_DEV=a bash bin/pm-preflight.sh --probe-db; strip
+{ [ ! -s "$SB/sshrec/calls" ] && has 'UNMEASURED queue-target.*offline (PM_OFFLINE=1)' "$OUTT" && [ "$RC" = 1 ]; }; check OFFLINE "PM_OFFLINE=1: a declared target host is not contacted (zero ssh calls), the leg is UNMEASURED 'offline (PM_OFFLINE=1)', exit 1 (rc=$RC)" $?
+{ has 'UNMEASURED fetch.*offline (PM_OFFLINE=1)' "$OUTT" && lacks 'ok   fetch' "$OUTT"; }; check OFFLINE "PM_OFFLINE=1: the git fetch leg is UNMEASURED 'offline (PM_OFFLINE=1)', never ok" $?
+{ [ ! -e "$SB/nsprobe" ] && has 'UNMEASURED namespace.*offline (PM_OFFLINE=1)' "$OUTT"; }; check OFFLINE "PM_OFFLINE=1: the live schema probe (PF_NS_TAKEN) is not run, the leg is UNMEASURED 'offline (PM_OFFLINE=1)'" $?
+{ lacks 'ok   queue-target' "$OUTT" && lacks 'ok   namespace' "$OUTT"; }; check OFFLINE "PM_OFFLINE=1: no skipped leg prints ok" $?
+run env -u PM_OFFLINE PATH="$SB/sshrec:$PATH" ACME_DEV=a bash bin/pm-preflight.sh --probe-db; strip
+{ [ -s "$SB/sshrec/calls" ] && [ -e "$SB/nsprobe" ]; }; check OFFLINE "[PM_OFFLINE unset: stubbed ssh and probe] without the switch the stubs ARE invoked (the test can see a call)" $?
+
 # (d) doctor: a repository with no remote has nothing to fetch
 mk_proj pa9d noremote
 run bash "$KITREL/doctor.sh"
@@ -1147,6 +1172,7 @@ HIB="$(LC_ALL=C grep -n -E '\$[A-Za-z_][A-Za-z0-9_]*[^ -~	]' pm-kit/*.sh pm-kit/
 RNG="$(grep -n -E '^[[:space:]]*(\*)?\[!?a-z' pm-kit/init.sh || true)"
 { [ -z "$RNG" ]; }; check portability "init.sh validates names with explicit letters, not an [a-z] glob range $RNG" $?
 
+check netcall "no test reached for the network (the recording fake ssh/scp/curl/wget/nc was never called) $(cat "$NETLOG")" "$([ -s "$NETLOG" ] && echo 1 || echo 0)"
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

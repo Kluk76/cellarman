@@ -14,6 +14,16 @@ SB="$(mktemp -d "${TMPDIR:-/tmp}/init-sandbox.XXXXXX")" || { echo "cannot create
 SB="$(cd "$SB" && pwd)"
 trap 'rm -rf "$SB"' EXIT
 
+# Offline by default (PM_OFFLINE=1), with a recording fake ssh/scp/curl/wget/nc
+# first on PATH: a suite that reaches for the network fails at its last assertion.
+# A case that deliberately exercises a remote leg (against a local bare repo or a
+# stubbed target) unsets the switch itself and says so in its name.
+NETLOG="$SB/net-calls.log"; : > "$NETLOG"; FAKENET="$SB/fakenet"; mkdir -p "$FAKENET"
+for _t in ssh scp curl wget nc; do
+  printf '#!/bin/sh\necho "%s $*" >> "%s"\nexit 255\n' "$_t" "$NETLOG" > "$FAKENET/$_t"; chmod +x "$FAKENET/$_t"
+done
+export PM_OFFLINE=1; PATH="$FAKENET:$PATH"
+
 export GIT_AUTHOR_NAME="Test Dev" GIT_AUTHOR_EMAIL=dev@example.com GIT_COMMITTER_NAME="Test Dev" GIT_COMMITTER_EMAIL=dev@example.com
 export GIT_CONFIG_NOSYSTEM=1
 unset PM_DEV PM_PROFILE PM_REPO_ROOT ACME_DEV ZETA_CO_DEV CLAUDE_CODE_SESSION_ID 2>/dev/null
@@ -135,11 +145,12 @@ run init --name acme --dev a
 git init -q --bare "$SB/health.remote.git"; git -C "$R" remote add origin "$SB/health.remote.git"; git -C "$R" push -q -u origin main
 (cd "$R" && HOME="$H" bash claude-brain/pm-kit/kernel/rails-index.sh > "$SB/rails.log" 2>&1); check "rails-index on the seed: exit 0" 0 "$?"
 (cd "$R" && HOME="$H" bash claude-brain/pm-kit/doctor.sh --strict > "$SB/doctor.log" 2>&1); check "doctor --strict: exit 0" 0 "$?"
-(cd "$R" && HOME="$H" ACME_DEV=a bash bin/pm-preflight.sh > "$SB/pf.log" 2>&1); rc=$?
-check "pre-flight on the committed, pushed install: exit 0 (CLEAR)" 0 "$rc"
-(cd "$R" && HOME="$H" ACME_DEV=a bash bin/pm-preflight.sh --paths src/new.php > "$SB/pf2.log" 2>&1); rc=$?
-check "pre-flight with --paths for a new file in the solo lane: exit 0" 0 "$rc"
+(cd "$R" && env -u PM_OFFLINE HOME="$H" ACME_DEV=a bash bin/pm-preflight.sh > "$SB/pf.log" 2>&1); rc=$?
+check "pre-flight on the committed, pushed install: exit 0 (CLEAR) [PM_OFFLINE unset: fetches the local remote]" 0 "$rc"
+(cd "$R" && env -u PM_OFFLINE HOME="$H" ACME_DEV=a bash bin/pm-preflight.sh --paths src/new.php > "$SB/pf2.log" 2>&1); rc=$?
+check "pre-flight with --paths for a new file in the solo lane: exit 0 [PM_OFFLINE unset]" 0 "$rc"
 
+check "no test reached for the network (fake ssh/scp/curl/wget/nc never called)" "" "$(cat "$NETLOG")"
 echo
 echo "init.sh: $NPASS passed, $NFAIL failed"
 [ "$NFAIL" -eq 0 ]

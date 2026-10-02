@@ -84,6 +84,8 @@ Read these before upgrading an existing install.
 
 ### Added
 
+- **`PM_OFFLINE=1`.** An environment switch under which no kit script touches the network: `pm-preflight.sh` skips `git fetch`, the deploy-target leg and the schema probe and reports each UNMEASURED "offline (PM_OFFLINE=1)" (exit 1, never an ok); `pm-sync` and `claim.sh --push` commit locally and say the push was not attempted. Every test suite now runs with the switch on and a recording fake `ssh`/`scp`/`curl`/`wget`/`nc` first on PATH, and fails if anything called it.
+
 - `pm-kit/init.sh`: installs the kit into a repository for a project name and a
   developer initial. Idempotent, never overwrites (exit 2 and nothing written when an
   existing file differs), `--dry-run`, `--no-agent-install`. Generates a profile with
