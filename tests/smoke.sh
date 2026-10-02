@@ -746,7 +746,7 @@ run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
   && has 'STOP arbitration.*a-late-item — Pick the tax rounding mode — 12 d open, past the 7d stop threshold' "$OUTT"; }; check A5 "every open item is listed with its id and title, at its own level" $?
 { lacks 'a-shut-item' "$OUTT"; }; check A5 "a closed item is not listed" $?
 { lacks 'STALE' "$OUTT" && lacks 'escalation' "$OUTT" && lacks ' j ' "$OUTT"; }; check A5 "no declared-age field is read and no escalation wording appears unless the profile sets them" $?
-prof_set PF_ARB_DECLARED_AGE_RE "'[·] [0-9]+ d'"
+prof_set PF_ARB_DECLARED_AGE_RE "'· [0-9]+ d'"
 prof_set PF_ARB_ESCALATION '"open a ticket by hand"'
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 { has 'a-old-item.*\[declared 1d — STALE\]' "$OUTT" && has 'escalation policy: open a ticket by hand' "$OUTT"; }; check A5 "PF_ARB_DECLARED_AGE_RE flags a stale declared age, in English; PF_ARB_ESCALATION is quoted verbatim" $?
@@ -974,6 +974,31 @@ grep -rnE 'VPS|tailnet|tsk_|next-migration|00-audit|H-<date>|<k\|l>|\[kl\]|k\+l|
 # shellcheck disable=SC2086
 grep -rnE 'CLOS\||RÉPONDU|CADUQUE|RESOLVED\|' pm-kit/doctor.sh pm-kit/kernel/pm-preflight.sh | grep -v 'PF_ARB_CLOSED_RE\|ARB_CLOSED_RE=' > "$SB/closure.txt" 2>/dev/null
 { [ ! -s "$SB/closure.txt" ]; }; check 10 "the closure vocabulary appears only as the PF_ARB_CLOSED_RE default" $?
+cd "$PROJ" 2>/dev/null || true
+
+###############################################################################
+# 11 — the example profile and the scripts agree about what is configurable
+###############################################################################
+cd "$C" || exit 64
+run bash tests/conf-surface.sh
+{ [ "$RC" = 0 ] && has 'conf-surface: OK'; }; check 11 "every variable in profiles/example.conf is read by a script, every name a script reads is documented (rc=$RC)" $?
+cp profiles/example.conf "$SB/conf-unread.conf"; printf 'DOMAIN_RULER_billing="a"\nPF_BOGUS_UNREAD="x"\n' >> "$SB/conf-unread.conf"
+run bash tests/conf-surface.sh --conf "$SB/conf-unread.conf"
+{ [ "$RC" = 1 ] && has 'UNREAD DOMAIN_RULER_billing' && has 'UNREAD PF_BOGUS_UNREAD'; }; check 11 "a variable nothing reads (PF_ and DOMAIN_) fails the surface test (rc=$RC)" $?
+cp profiles/example.conf "$SB/conf-agent.conf"
+insert_after_marker() { awk -v add="$2" '{print} /--- agent-read: begin ---/{print add}' "$1"; }
+insert_after_marker "$SB/conf-agent.conf" 'PF_FOR_THE_AGENT="read by the PM agent"' > "$SB/conf-agent2.conf"
+run bash tests/conf-surface.sh --conf "$SB/conf-agent2.conf"
+{ [ "$RC" = 0 ]; }; check 11 "a variable inside the agent-read block is exempt (rc=$RC)" $?
+cp profiles/example.conf "$SB/conf-fam.conf"; printf 'DEV_c="Cy Dube|^Cy Dube$"\n' >> "$SB/conf-fam.conf"
+run bash tests/conf-surface.sh --conf "$SB/conf-fam.conf"
+{ [ "$RC" = 0 ]; }; check 11 "a DEV_<id> family member counts as read (expanded by prefix) (rc=$RC)" $?
+rm -rf "$SB/kitcopy"; mkdir -p "$SB/kitcopy"; cp -R pm-kit "$SB/kitcopy/pm-kit"
+printf ': "${NEW_THING:=${PF_NEW_THING:-}}"\n' >> "$SB/kitcopy/pm-kit/kernel/pm-preflight.sh"
+run bash tests/conf-surface.sh --conf profiles/example.conf --kit "$SB/kitcopy"
+{ [ "$RC" = 1 ] && has 'UNDOCUMENTED PF_NEW_THING'; }; check 11 "a script reading a variable the profile never mentions fails the surface test (rc=$RC)" $?
+run bash tests/conf-surface.sh --conf "$SB/no-such.conf"
+{ [ "$RC" = 3 ]; }; check 11 "no profile: did not run, exit 3 (rc=$RC)" $?
 cd "$PROJ" 2>/dev/null || true
 
 ###############################################################################

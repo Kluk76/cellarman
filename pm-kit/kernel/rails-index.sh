@@ -123,7 +123,7 @@ fi
 # shellcheck disable=SC1090
 . "$CONF"
 
-: "${PM_INDEX_REL:=${PF_PM_INDEX:-}}"
+: "${INDEX_REL:=${PF_PM_INDEX:-}}"
 : "${EXTRA_CORPUS:=${PF_RAILS_EXTRA_CORPUS:-}}"
 : "${TABLE_RE:=${PF_ARTEFACT_TABLE_RE:-}}"
 # File-extension classifier. UNLIKE TABLE_RE this carries a DEFAULT — the list
@@ -145,7 +145,7 @@ fi
 : "${EXPAND_CMD:=${PF_ARTEFACT_EXPAND:-}}"
 : "${MAX_ITER:=${PF_ARTEFACT_EXPAND_MAX_ITER:-25}}"
 
-if [ -z "$PM_INDEX_REL" ]; then
+if [ -z "$INDEX_REL" ]; then
   echo "rails-index: NOT RUN — profile '$CONF' does not define PF_PM_INDEX — nothing names the corpus to mine." >&2
   exit 3
 fi
@@ -164,15 +164,15 @@ fi
 
 cd "$REPO_ROOT" || { echo "rails-index: cannot cd $REPO_ROOT" >&2; exit 3; }
 
-PM_INDEX="$REPO_ROOT/$PM_INDEX_REL"
+INDEX_ABS="$REPO_ROOT/$INDEX_REL"
 OUTPUT="$REPO_ROOT/$OUTPUT_REL"
 # Empty stays EMPTY: "$REPO_ROOT/" is a directory, and `[ -s dir ]` is true — an
 # unconfigured cache used to read as a present one and print "MEASURED".
 GRAPH_CACHE=""
 [ -n "$GRAPH_CACHE_REL" ] && GRAPH_CACHE="$REPO_ROOT/$GRAPH_CACHE_REL"
 
-if [ ! -f "$PM_INDEX" ]; then
-  echo "rails-index: NOT RUN — PF_PM_INDEX names '$PM_INDEX_REL', which does not exist at $PM_INDEX." >&2
+if [ ! -f "$INDEX_ABS" ]; then
+  echo "rails-index: NOT RUN — PF_PM_INDEX names '$INDEX_REL', which does not exist at $INDEX_ABS." >&2
   exit 3
 fi
 
@@ -195,7 +195,7 @@ trap 'rm -rf "$TMP"' EXIT INT TERM
 #    entire point is that silence must not read as coverage.
 CORPUS_LIST="$TMP/corpora.txt"
 : > "$CORPUS_LIST"
-printf '%s\n' "$PM_INDEX_REL" >> "$CORPUS_LIST"
+printf '%s\n' "$INDEX_REL" >> "$CORPUS_LIST"
 
 if [ -n "$EXTRA_CORPUS" ]; then
   printf '%s\n' "$EXTRA_CORPUS" | while IFS= read -r CL; do
