@@ -254,7 +254,8 @@ EOF
 sev() { awk -F'\t' -v a="$1" '$1==a {print $2; exit}' "$PROJ/$KITREL/state/RAILS-BY-ARTEFACT.tsv"; }
 sevline() { printf 'db.php=%s ref_users=%s fin_ledger.amount=%s deploy.sh=%s' "$(sev app/db.php)" "$(sev ref_users)" "$(sev fin_ledger.amount)" "$(sev scripts/deploy.sh)"; }
 EXPECT_SEV='db.php=STOP ref_users=WARN fin_ledger.amount=STOP deploy.sh=STOP'
-UTF8_LOC=""; for l in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do locale -a 2>/dev/null | grep -qx "$l" && { UTF8_LOC="$l"; break; }; done
+locale -a > "$SB/locales.txt" 2>/dev/null
+UTF8_LOC=""; for l in C.UTF-8 C.utf8 en_US.UTF-8 en_US.utf8; do grep -qx "$l" "$SB/locales.txt" && { UTF8_LOC="$l"; break; }; done
 AWKSHIM="$SB/awkshim"; mkdir -p "$AWKSHIM"
 if command -v gawk >/dev/null 2>&1; then
   ln -sf "$(command -v gawk)" "$AWKSHIM/awk"
