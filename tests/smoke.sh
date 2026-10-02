@@ -178,6 +178,21 @@ else
 fi
 
 ###############################################################################
+# (c) — catalog harvests every trigger line, never truncates the search haystack
+###############################################################################
+LONGW="$(printf 'filler%.0s ' 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20 21 22 23 24 25 26 27 28 29 30 31 32 33 34 35 36 37 38 39 40 41 42 43 44 45 46 47 48 49 50)"
+{ printf '# Many triggers\n\n'
+  printf '> Trigger: alpha\n> Trigger: beta\n> Trigger: gamma\n> Trigger: fourthword\n'
+  printf '> Trigger: %s tailword\n' "$LONGW"; } > "$MEMDIR/many-triggers.md"
+run bash "$KITREL/catalog.sh" --grep fourthword
+{ [ "$RC" = 0 ] && has 'many-triggers.md'; }; check cat-c "a 4th trigger line is searchable (rc=$RC)" $?
+run bash "$KITREL/catalog.sh" --grep tailword
+{ [ "$RC" = 0 ] && has 'many-triggers.md'; }; check cat-c "a word past byte 400 of the triggers is searchable (rc=$RC)" $?
+{ has '…'; }; check cat-c "long triggers are displayed shortened with a visible ellipsis" $?
+{ ! has 'tailword'; }; check cat-c "the shortened display does not carry the tail" $?
+rm -f "$MEMDIR/many-triggers.md"
+
+###############################################################################
 printf '\nsmoke: %d passed, %d failed, %d skipped\n' "$N_PASS" "$N_FAIL" "$N_SKIP"
 [ "$N_FAIL" = 0 ]; FINAL=$?
 exit "$FINAL"

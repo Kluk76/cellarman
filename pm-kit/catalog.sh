@@ -87,11 +87,14 @@ fi
         bytes=$(wc -c < "$f")
         mtime=$(date -r "$f" +%F)
         # Harvest routing signals from the file head only (cheap, and that is
-        # where the house convention puts them).
+        # where the house convention puts them). EVERY trigger line of the head
+        # is kept, untruncated: the column is the --grep haystack, and a cap
+        # here made later trigger lines and long ones unreachable by search
+        # (display is shortened at print time instead — see the grep mode).
         head_block="$(head -c 6144 "$f")"
         triggers="$(printf '%s\n' "$head_block" \
-            | grep -iE '^> .*(trig(ger)?|déclench)' | head -3 \
-            | sed 's/^> *//' | tr -d '*`' | tr '\n\t' '  ' | cut -c1-400)"
+            | grep -iE '^> .*(trig(ger)?|déclench)' \
+            | sed 's/^> *//' | tr -d '*`' | tr '\n\t' '  ' | sed 's/ *$//')"
         title="$(printf '%s\n' "$head_block" \
             | grep -m1 '^# ' | sed 's/^# *//' | tr -d '*`' | tr '\t' ' ' | cut -c1-160)"
         # Exact first-column match through ENVIRON (no regex, no -P: BSD grep has
@@ -116,6 +119,8 @@ case "$MODE" in
         ;;
     grep)
         [ -n "$PATTERN" ] || { echo "pm-catalog: --grep needs a pattern" >&2; exit 1; }
+        # Display only: triggers longer than 400 chars print shortened with an
+        # ellipsis; the match below always runs on the FULL column.
         # Match on the routing columns only (path, triggers, title) so byte
         # counts and dates can't produce false hits. The pattern is a POSIX
         # ERE matched case-insensitively as a SUBSTRING — alternation is plain
@@ -129,7 +134,9 @@ case "$MODE" in
             BEGIN { pat = tolower(ENVIRON["PM_CATALOG_PAT"]) }
             NR==1 { next }
             tolower($1 FS $6 FS $7) ~ pat {
-                printf "%s\t%sB\tloads:%s last:%s\n\t%s\n\t%s\n", $1, $2, $4, $5, $7, $6 }' \
+                trig = $6
+                if (length(trig) > 400) trig = substr(trig, 1, 400) "…"
+                printf "%s\t%sB\tloads:%s last:%s\n\t%s\n\t%s\n", $1, $2, $4, $5, $7, trig }' \
             "$CATALOG"
         ;;
     audit)
