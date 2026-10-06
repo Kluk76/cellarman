@@ -1194,6 +1194,44 @@ run bash "$KITREL/doctor.sh" --strict
 { [ "$RC" = 0 ] && has 'agent file carries a kernel block' && has 'kernel tokens and bindings rows agree' && has 'kernel block identical to pm-kit/PROTOCOL.md' && lacks 'no kernel block'; }; check leftover "an agent file whose marker lines are indented still has its kernel found, checked and equal to PROTOCOL.md (rc=$RC)" $?
 
 ###############################################################################
+# H — the skeleton bash-guard hook, and the settings wrapper that runs it
+###############################################################################
+run bash "$C/skeleton/hooks/bash-guard.sh" --self-test
+{ [ "$RC" = 0 ] && has ' 0 failed'; }; check H1 "bash-guard --self-test is green: exit 0 (rc=$RC)" $?
+mkdir -p "$SB/nocases" && cp "$C/skeleton/hooks/bash-guard.sh" "$SB/nocases/"
+run bash "$SB/nocases/bash-guard.sh" --self-test
+{ [ "$RC" = 3 ]; }; check H2 "bash-guard --self-test without its cases file: exit 3, tested nothing (rc=$RC)" $?
+printf 'x\n### allow — wrong\ngit add -A\n' > "$SB/nocases/bash-guard.cases"
+run bash "$SB/nocases/bash-guard.sh" --self-test
+{ [ "$RC" = 1 ] && has 'FAIL'; }; check H3 "bash-guard --self-test with a mismatching case: exit 1 (rc=$RC)" $?
+# the wrapper exactly as skeleton/settings.example.json ships it
+WRAP="$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$C/skeleton/settings.example.json")"
+mkdir -p "$SB/wrapproj/.claude/hooks"
+cp "$C/skeleton/hooks/bash-guard.sh" "$C/skeleton/hooks/bash-guard.cases" "$SB/wrapproj/.claude/hooks/"
+printf '{"tool_input":{"command":"git add -A"}}' > "$SB/h-block.json"; printf '{"tool_input":{"command":"git status"}}' > "$SB/h-ok.json"
+run env CLAUDE_PROJECT_DIR="$SB/wrapproj" bash -c "$WRAP" < "$SB/h-block.json"
+{ [ "$RC" = 2 ] && has 'BLOCKED \[R2\]'; }; check H4 "the settings wrapper runs the guard: git add -A is refused, exit 2 (rc=$RC)" $?
+run env CLAUDE_PROJECT_DIR="$SB/wrapproj" bash -c "$WRAP" < "$SB/h-ok.json"
+{ [ "$RC" = 0 ] && [ ! -s "$OUT" ]; }; check H5 "the settings wrapper lets git status through silently (rc=$RC)" $?
+printf 'if then fi fi (\n' > "$SB/wrapproj/.claude/hooks/bash-guard.sh"
+run env CLAUDE_PROJECT_DIR="$SB/wrapproj" bash -c "$WRAP" < "$SB/h-block.json"
+{ [ "$RC" = 1 ] && has 'bash-guard INACTIVE'; }; check H6 "an unparsable guard script FAILS OPEN and says so: exit 1 (not 2), 'bash-guard INACTIVE' (rc=$RC)" $?
+rm -f "$SB/wrapproj/.claude/hooks/bash-guard.sh"
+run env CLAUDE_PROJECT_DIR="$SB/wrapproj" bash -c "$WRAP" < "$SB/h-block.json"
+{ [ "$RC" = 1 ] && has 'bash-guard INACTIVE'; }; check H7 "a missing guard script fails open visibly too: exit 1 (rc=$RC)" $?
+cp "$C/skeleton/hooks/bash-guard.sh" "$SB/wrapproj/.claude/hooks/"
+printf '{"tool_input":{"command":"git commit -n -m x"}}' > "$SB/h-n.json"
+run env CLAUDE_PROJECT_DIR="$SB/wrapproj" bash -c "$WRAP" < "$SB/h-n.json"
+{ [ "$RC" = 2 ] && has 'R1'; }; check H8 "git commit -n is refused (R1); git push -n (dry run) is not (rc=$RC)" $?
+printf '{"tool_input":{"command":"git push -n origin main"}}' > "$SB/h-pn.json"
+run env CLAUDE_PROJECT_DIR="$SB/wrapproj" bash -c "$WRAP" < "$SB/h-pn.json"
+{ [ "$RC" = 0 ] && [ ! -s "$OUT" ]; }; check H9 "git push -n origin main is a dry run: allowed (rc=$RC)" $?
+printf 'not json' > "$SB/h-bad.json"
+run env CLAUDE_PROJECT_DIR="$SB/wrapproj" bash -c "$WRAP" < "$SB/h-bad.json"
+{ [ "$RC" = 1 ] && has 'bash-guard INACTIVE'; }; check H10 "unparseable hook JSON fails open visibly: exit 1 (rc=$RC)" $?
+cd "$C" || exit 64
+
+###############################################################################
 ###############################################################################
 # Portability guards: two bash 3.2 (macOS) traps that no Linux run can show
 ###############################################################################

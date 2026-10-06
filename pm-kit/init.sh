@@ -25,7 +25,7 @@
 #   claude-brain/agents/<name>-pm-memory.md        the seed index
 #   claude-brain/agents/<name>-pm-memory/          shipped-arcs register, handoff register
 #   claude-brain/CLAIMS.tsv, claude-brain/OWNERSHIP.map   from the templates
-#   claude-brain/pm-sync.sh, .claude/hooks/*.sh, .claude/settings.json
+#   claude-brain/pm-sync.sh, .claude/hooks/* (the .sh hooks and bash-guard.cases), .claude/settings.json
 #   bin/pm-preflight.sh                  the launcher
 #   docs/PLAN.md                         a placeholder plan document
 #   ~/.claude/agents/<name>-pm.md        the installed copy of the agent file
@@ -146,7 +146,7 @@ put "claude-brain/CLAIMS.tsv" < "$KIT_ROOT/skeleton/CLAIMS.tsv.example"
   printf 'own   %s  *  *\n' "$DEV"; } | put "claude-brain/OWNERSHIP.map"
 printf '# Plan\n\n### P-1 First thing\nGoal: ...\nAcceptance: ...\n' | put "docs/PLAN.md"
 cp "$KIT_ROOT/skeleton/pm-sync.example.sh" "$TMP/pmsync"; put "claude-brain/pm-sync.sh" < "$TMP/pmsync"
-for h in "$KIT_ROOT"/skeleton/hooks/*.sh; do rename "$h" | put ".claude/hooks/$(basename "$h")"; done
+for h in "$KIT_ROOT"/skeleton/hooks/*.sh "$KIT_ROOT"/skeleton/hooks/*.cases; do rename "$h" | put ".claude/hooks/$(basename "$h")"; done
 rename "$KIT_ROOT/skeleton/settings.example.json" | put ".claude/settings.json"
 
 # the agent file: the template with the kernel pasted between its two markers

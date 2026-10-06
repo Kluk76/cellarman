@@ -1,0 +1,565 @@
+bash-guard test cases -- run with:  bash .claude/hooks/bash-guard.sh --self-test   (or skeleton/hooks/bash-guard.sh in the kit)
+
+Some R1/R1b cases are adapted from affaan-m/ecc (tests/hooks/block-no-verify.test.js), MIT License, Copyright (c) 2026 Affaan Mustafa.
+
+FORMAT
+  Everything before the first "### " header line is documentation (this text).
+  A case is a header line
+        ### <expect> — <label>
+  followed by the RAW command, byte for byte (it may span several lines, e.g. a
+  heredoc), up to the next "### " line or the end of the file. The command is
+  never executed: the self-test only feeds it, wrapped in hook JSON, to the guard.
+  <expect> is exactly one of
+        allow                 no output, exit 0
+        warn:<ids>            a WARN context naming the rules (ids joined by +)
+        block:<ids>           exit 2 naming the rules (block wins; every matched
+                              rule id is listed, warn rules included, e.g. block:R1+R4)
+        warn:PARSE            the command could not be analysed
+  Labels start with the rule they exercise: "R1 fire" = must trip R1, "R1 near" =
+  a near-miss that must NOT trip it. Other prefixes: HD heredoc, Q quoting, M misc.
+  Never start a command line with three hashes.
+
+### block:R1 — R1 fire: --no-verify long form
+git commit --no-verify -m "msg"
+### block:R1 — R1 fire: -n short
+git commit -n -m "msg"
+### block:R1 — R1 fire: -nm cluster, message separate
+git commit -nm "msg"
+### block:R1 — R1 fire: -an cluster
+git commit -an
+### block:R1 — R1 fire: git push --no-verify
+git push --no-verify
+### block:R1 — R1 fire: git push --no-verify with remote and branch
+git push origin main --no-verify
+### block:R1 — R1 fire: global option -C between git and subcommand
+git -C dir commit -n
+### block:R1 — R1 fire: leading env assignment
+FOO=bar git commit -n
+### block:R1 — R1 fire: quoted flag is still the flag
+git commit "--no-verify" -m "msg"
+### block:R1 — R1 fire: later command in a chain
+git commit -m ok; git commit -am x -n
+### block:R1 — R1 fire: after a clean command with &&
+git log -n 5 && git commit --no-verify -m "msg"
+### block:R1 — R1 fire: push --no-verify after commit
+git commit -m "msg" && git push --no-verify
+### block:R1 — R1 fire: sudo wrapper with -u
+sudo -u deploy git commit -n -m x
+### block:R1 — R1 fire: timeout wrapper
+timeout 10 git push --no-verify
+### block:R1 — R1 fire: -sn cluster
+git commit -sn -m "msg"
+### block:R1 — R1 fire: n after a no-value letter then value letters
+git commit -nu -m "msg"
+### block:R1 — R1 fire: abbreviated --no-veri
+git commit --no-veri -m "msg"
+### block:R1 — R1 fire: abbreviated push --no-verif
+git push --no-verif origin main
+### block:R1 — R1 fire: backslash-newline continuation joins lines
+git commit \
+--no-verify -m x
+### block:R1 — R1 fire: inside bash -c payload
+bash -c 'git commit -n -m x'
+### block:R1 — R1 fire: inside sh -c double-quoted payload
+sh -c "git commit --no-verify -m x"
+### block:R1 — R1 fire: inside command substitution
+echo "$(git commit -n -m x)"
+### block:R1 — R1 fire: inside backticks
+echo `git commit -n -m x`
+### block:R1 — R1 fire: inside subshell group
+(git commit -m ok; git push --no-verify)
+### block:R1 — R1 fire: inside brace group
+{ git commit -n -m x; }
+### block:R1 — R1 fire: inside if-then
+if true; then git commit -n -m x; fi
+### block:R1 — R1 fire: single-quoted git word with quote assembly
+'git' commit -n -m x
+### block:R1 — R1 fire: ssh remote command
+ssh myhost 'cd /srv/x && git commit -n -m x'
+### block:R1 — R1 fire: eval of a literal
+eval "git commit --no-verify -m x"
+### block:R1 — R1 fire: time wrapper
+time git commit -n -m x
+### block:R1 — R1 fire: env wrapper with unset
+env -u HOME git push --no-verify
+### block:R1 — R1 fire: git global option --no-pager
+git --no-pager commit -n -m x
+### allow — R1 near: -m value that looks like -n
+git commit -m "-n"
+### allow — R1 near: -m value mentioning --no-verify
+git commit -m "use --no-verify"
+### allow — R1 near: -F file
+git commit -F file
+### allow — R1 near: -mn is the message n
+git commit -mn
+### allow — R1 near: git push -n is --dry-run
+git push -n
+### allow — R1 near: git push --dry-run -n origin
+git push --dry-run -n origin main
+### allow — R1 near: -uno is the untracked mode
+git commit -uno -m "msg"
+### allow — R1 near: -Sn optional gpg key value
+git commit -Sn -m "msg"
+### allow — R1 near: -tn template value
+git commit -tn -m "msg"
+### allow — R1 near: -am with a -n message
+git commit -am "-n"
+### allow — R1 near: git log -n then a clean commit
+git log -n 10 && git commit -m "msg"
+### allow — R1 near: echo --no-verify then clean commit
+echo --no-verify && git commit -m "msg"
+### allow — R1 near: --no-verbose is not --no-verify
+git commit --no-verbose -m "msg"
+### allow — R1 near: after -- everything is a pathspec
+git commit -m x -- --no-verify
+### allow — R1 near: redirect target named --no-verify
+git commit -m safe > --no-verify
+### allow — R1 near: comment mentions --no-verify
+git commit -m safe # --no-verify
+### allow — R1 near: -n belongs to git log
+git -C dir log -n 5
+### allow — R1 near: git fetch -n is not commit
+git fetch -n origin
+### allow — R1 near: -F with a file named -n is the value
+git commit -F -n
+### allow — R1 near: -C reuse-message value
+git commit -C HEAD -m x
+### allow — R1 near: bash -c payload is clean
+bash -c 'echo --no-verify'
+### allow — R1 near: git commit-tree is another subcommand
+git commit-tree -n abc
+### allow — R1 near: 'commit' as a refspec of push
+git push origin commit
+### allow — R1 near: -m "--no-verify" with a separated value
+git commit -m "--no-verify"
+### allow — R1 near: --message= joined value
+git commit --message="skip --no-verify"
+### block:R1b — R1b fire: -c core.hooksPath
+git -c core.hooksPath=/dev/null commit -m "msg"
+### block:R1b — R1b fire: quoted -c value
+git -c "core.hooksPath=/dev/null" commit -m "msg"
+### block:R1b — R1b fire: lowercase key
+git -c core.hookspath=/dev/null commit -m "msg"
+### block:R1b — R1b fire: upper-case key, any subcommand
+git -c core.HOOKSPATH=/dev/null status
+### block:R1b — R1b fire: config set
+git config core.hooksPath /dev/null
+### block:R1b — R1b fire: config --local set to empty string
+git config --local core.hooksPath ''
+### block:R1b — R1b fire: config --global --unset
+git config --global --unset core.hooksPath
+### block:R1b — R1b fire: config --worktree set
+git config --worktree core.hooksPath /tmp/h
+### block:R1b — R1b fire: config --file set
+git config --file .git/config core.hooksPath /tmp/h
+### block:R1b — R1b fire: --unset-all
+git config --unset-all core.hooksPath
+### block:R1b — R1b fire: --config-env joined
+git --config-env=core.hooksPath=HP commit -m x
+### block:R1b — R1b fire: -c after -C
+git -C dir -c core.hooksPath=/dev/null push
+### block:R1b — R1b fire: config --replace-all
+git config --replace-all core.hooksPath /x
+### allow — R1b near: reading with --get
+git config --get core.hooksPath
+### allow — R1b near: reading with no value
+git config core.hooksPath
+### allow — R1b near: --get-all
+git config --get-all core.hooksPath
+### allow — R1b near: global --get
+git config --global --get core.hooksPath
+### allow — R1b near: other -c key
+git -c user.name=x commit -m msg
+### allow — R1b near: -c core.editor
+git -c core.editor=true commit -m msg
+### allow — R1b near: key that only starts like hooksPath
+git -c core.hooksPathX=1 status
+### allow — R1b near: echoed text
+echo "git config core.hooksPath /dev/null"
+### allow — R1b near: other config key set
+git config user.name "Someone"
+### allow — R1b near: config --list
+git config --list
+### allow — R1b near: commit message about hooksPath
+git commit -m "doc: explain core.hooksPath= setting"
+### allow — R1b near: grep for the key
+grep core.hooksPath .git/config
+### allow — R1b near: -c value of another key containing the word
+git -c alias.x="status core.hooksPath=y" status
+### block:R2 — R2 fire: -A
+git add -A
+### block:R2 — R2 fire: --all
+git add --all
+### block:R2 — R2 fire: bare dot
+git add .
+### block:R2 — R2 fire: -A inside a cluster
+git add -Av
+### block:R2 — R2 fire: dot after --
+git add -- .
+### block:R2 — R2 fire: force + dot
+git add -f .
+### block:R2 — R2 fire: after a clean add
+git add f.txt && git add -A
+### block:R2 — R2 fire: inside bash -c
+bash -c "git add ."
+### block:R2 — R2 fire: quoted dot
+git add "."
+### block:R2 — R2 fire: in a brace group
+{ git add -A; }
+### block:R2 — R2 fire: with -C global option
+git -C /repo add --all
+### allow — R2 near: ./path
+git add ./path
+### allow — R2 near: .claude/x
+git add .claude/x
+### allow — R2 near: .gitignore
+git add .gitignore
+### allow — R2 near: -u alone
+git add -u
+### allow — R2 near: --update alone
+git add --update
+### allow — R2 near: -u with a pathspec
+git add -u src
+### allow — R2 near: explicit files
+git add src/a.php app/b.php
+### allow — R2 near: -n dry run of one file
+git add -n file
+### allow — R2 near: parent directory token
+git add ..
+### allow — R2 near: -p patch mode on a file
+git add -p file.php
+### allow — R2 near: -u with dot is tracked-only
+git add -u .
+### allow — R2 near: echoed text
+echo git add -A
+### allow — R2 near: commit message text
+git commit -m "never git add -A here"
+### allow — R2 near: git status with a dot
+git status .
+### allow — R2 near: another subcommand with -A
+git stash -A
+### warn:R4 — R4 fire: git push piped to tail
+git push origin main 2>&1 | tail -5
+### warn:R4 — R4 fire: git pull piped
+git pull | cat
+### warn:R4 — R4 fire: git rebase with |&
+git rebase origin/main |& tee /dev/null
+### warn:R4 — R4 fire: git merge piped
+git merge topic | head
+### warn:R4 — R4 fire: pm-preflight.sh piped to tee
+bin/pm-preflight.sh --apply | tee log
+### warn:R4 — R4 fire: pm-preflight via bash
+bash scripts/pm-preflight.sh | head
+### warn:R4 — R4 fire: pm-preflight.sh piped
+claude-brain/pm-preflight.sh --strict | tail -3
+### warn:R4 — R4 fire: group stage carrying a push
+(git push origin main) | tail
+### warn:R4 — R4 fire: ssh remote deploy piped
+ssh myhost 'cd /srv && bin/pm-preflight.sh --verify' | tail
+### warn:R4 — R4 fire: trigger in the middle stage
+git push 2>&1 | tee x | tail
+### warn:R4 — R4 fire: brace group with a rebase piped
+{ git rebase main; } | cat
+### allow — R4 near: || is not a pipe
+git push || echo failed
+### allow — R4 near: redirect then read rc
+git push > /dev/null 2>&1; rc=$?
+### allow — R4 near: pipe from a non-trigger
+git status | head
+### allow — R4 near: git log piped
+git log | head
+### allow — R4 near: merge-base is not merge
+git merge-base a b | head
+### allow — R4 near: trigger is the LAST stage
+echo x | git push
+### allow — R4 near: apply patch from diff
+git diff | git apply
+### allow — R4 near: grep for the script name
+grep pm-preflight.sh notes.txt | head
+### allow — R4 near: push alone
+git push origin main
+### allow — R4 near: push in a message
+git commit -m "git push | tail"
+### allow — R4 near: echoed text
+echo "git pull | cat"
+### allow — R4 near: &> redirect is not a pipe
+git push &> /dev/null
+### allow — R4 near: push then a separate piped log
+git push origin main && git log | head
+### allow — R4 near: 2>&1 alone
+git push 2>&1
+### allow — R4 near: command -v is a lookup
+command -v git push | head
+### block:R5 — R5 fire: push piped then echo pushed
+git push origin main 2>&1 | tail -3 && echo pushed
+### block:R5 — R5 fire: deploy piped then echo
+bin/pm-preflight.sh --apply --yes | tail -3 && echo "deployed"
+### block:R5 — R5 fire: pull piped, echo on the next line after &&
+git pull --ff-only 2>&1 | tail -2 &&
+echo "pulled"
+### block:R5 — R5 fire: ssh deploy piped then echo
+ssh myhost 'cd /srv && bin/pm-preflight.sh --verify' | tail -2 && echo clean
+### block:R5 — R5 fire: trigger in the middle stage
+git rebase main 2>&1 | tee x | tail -1 && echo rebased
+### block:R5 — R5 fire: echo preceded by an unrelated clean command
+ls && git merge topic | cat && echo merged
+### allow — R5 near: plain pipeline then divider echo
+git log | head && echo "=== done ==="
+### allow — R5 near: grep pipeline then echo
+cat f | grep x && echo found
+### allow — R5 near: three non-trigger stages
+a | b | c && echo ok
+### allow — R5 near: heredoc feeding a non-trigger pipeline
+cat <<EOF | grep x && echo y
+x
+EOF
+### allow — R5 near: trigger LAST in the pipeline
+echo x | git push && echo pushed
+### warn:R4 — R5 near: trigger pipeline then another command before echo (R4 only)
+git push 2>&1 | tail -1 && ls && echo ok
+### warn:R4 — R5 near: trigger pipeline with || echo (R4 only)
+git push 2>&1 | tail -1 || echo failed
+### allow — R5 near: single command then echo
+ls && echo ok
+### allow — R5 near: semicolon
+ls | wc -l; echo ok
+### allow — R5 near: || echo
+ls | wc -l || echo fail
+### allow — R5 near: pipeline then another command before echo
+ls | wc -l && ls && echo ok
+### allow — R5 near: newline separator
+ls | wc -l
+echo ok
+### allow — R5 near: echo inside quotes
+echo "a | b && echo ok"
+### allow — R5 near: no pipe
+grep x f && echo found
+### allow — R5 near: pipeline then non-echo command
+cat f | wc && ls
+### allow — R5 near: comment text
+ls # a | b && echo ok
+### allow — R5 near: background & is not &&
+ls | wc -l & echo ok
+### allow — R5 near: && echo whose pipeline is only on the echo side
+ls && echo ok | cat
+### allow — HD heredoc: double-quoted delimiter
+git commit -F - <<"MSG"
+--no-verify and git add -A are only words here
+MSG
+### allow — HD heredoc: bare delimiter
+cat <<EOF
+git add -A
+git commit -n
+EOF
+### allow — HD heredoc: <<- with tab-stripped terminator
+cat <<-EOF
+	git add -A
+	git commit --no-verify
+	EOF
+### allow — HD heredoc: two heredocs on one line
+cat <<A <<'B'
+git add -A
+A
+git commit -n
+B
+### block:R2 — HD heredoc then a blanket add
+cat <<EOF > /tmp/x
+harmless
+EOF
+git add -A
+### block:R1 — HD heredoc feeding a command that is followed by more commands
+git commit -F - <<'MSG' && git commit -n -m again
+body
+MSG
+### allow — HD heredoc: body has apostrophes, unbalanced quotes and parens
+git commit -F - <<'MSG'
+it's a "test (with unbalanced
+quote ) and ' stray `backtick
+MSG
+### allow — HD heredoc: commit message via command substitution
+git commit -m "$(cat <<'EOF'
+Fix the thing --no-verify | tail && echo ok
+
+body with git add -A
+EOF
+)"
+### block:R1 — HD heredoc via substitution, then a bypass after it
+git commit -m "$(cat <<'EOF'
+message text
+EOF
+)" && git commit -n -m x
+### allow — HD heredoc: indented line is not a terminator for plain <<
+cat <<EOF
+ EOF
+git add -A
+EOF
+### allow — HD heredoc: python body then clean command
+python3 - <<'PY'
+print("git commit -n")
+os.system("git add -A")
+PY
+ls
+### block:R2 — HD heredoc: command after python heredoc
+python3 - <<'PY'
+print("git commit -n")
+PY
+git add -A
+### allow — HD heredoc: delimiter alone on its line closes the body
+cat <<EOF
+git add -A
+EOF
+### allow — HD heredoc piped to tail, then echo after &&
+cat <<EOF | tail -1 && echo "done"
+line
+EOF
+### allow — HD heredoc: here-string is not a heredoc
+cat <<< "git add -A"
+### block:R1 — HD here-string does not swallow later lines
+cat <<< "text"
+git commit -n -m x
+### allow — HD heredoc with empty body
+cat <<EOF
+EOF
+### allow — HD heredoc never terminated is still data
+cat <<EOF
+git add -A
+git commit -n
+### allow — Q double quotes hide separators and flags
+git commit -m "never use --no-verify | tail && echo ok"
+### allow — Q single quotes hide a blanket add
+git commit -m 'git add -A'
+### allow — Q ANSI-C quoting is data
+echo $'git commit -n; git add -A'
+### warn:PARSE — Q unbalanced double quote
+echo "abc
+### warn:PARSE — Q unbalanced single quote in a commit
+git commit -m 'abc
+### warn:PARSE — Q unbalanced command substitution
+echo $(git status
+### allow — Q apostrophe inside double quotes
+git commit -m "it's fine --no-verify"
+### allow — Q double quotes inside single quotes
+git commit -m 'say "hi" -n'
+### block:R1 — Q adjacent quoted pieces then a bypass
+echo 'a'"b" && git commit -n
+### block:R1 — Q substitution inside double quotes is executed
+git commit -m "$(echo hi)" -n
+### block:R2 — Q quoted dot
+git add '.'
+### allow — Q printf with a quoted pipeline text
+printf '%s' "git push | tail"
+### allow — Q escaped quote inside double quotes
+git commit -m "say \"--no-verify\" | tail"
+### allow — Q escaped dollar-paren stays data
+echo "\$(git commit -n)"
+### allow — Q backslash-escaped space keeps one word
+git add path\ with\ space/file.txt
+### block:R2 — Q hash inside a word is not a comment
+echo foo#bar; git add -A
+### block:R2 — Q quoted hash is not a comment
+echo "#"; git add -A
+### allow — M comment hides everything after it
+ls # git add -A && git commit -n
+### block:R2 — M comment ends at the newline
+ls # git commit -n
+git add -A
+### allow — M 2>&1 is not a separator
+git commit -m x 2>&1
+### block:R1 — M 2>&1 does not hide a flag
+git commit -n 2>&1
+### block:R1 — M &> redirect is not a separator
+git status &>/dev/null && git commit -n
+### block:R1 — M background ampersand separates commands
+sleep 1 & git commit -n -m x
+### block:R2 — M for loop body
+for f in a b; do git add -A; done
+### block:R1 — M nohup wrapper
+nohup git commit -n -m x
+### block:R1 — M command wrapper (not -v)
+command git commit -n -m x
+### allow — M command -v is a lookup
+command -v git commit -n
+### block:R1 — M empty fd redirect before the command
+2>/dev/null git commit -n -m x
+### allow — M empty command
+### allow — M plain harmless commands
+ls -la && git status && git diff --stat
+### allow — M arithmetic expansion is not a group of commands
+echo $((1+2)) && git commit -m x
+### allow — M parameter expansion with braces
+echo ${HOME:-x} ${#HOME}
+### block:R1 — M parameter expansion then bypass
+echo ${HOME} && git commit -n -m x
+### allow — M case statement text
+case x in a) echo hi;; esac
+### allow — M test expression with parentheses and pipes
+[[ $x =~ (a|b) ]] && echo ok
+### allow — M ssh payload that needs run-time variables to tokenise is not warned about
+R="sudo bash -c 'cd /srv && ls"
+ssh myhost "$R --x'" > /dev/null 2>&1
+### warn:PARSE — M bash -c payload that does not tokenise is reported
+bash -c 'git commit -n -m "x'
+### allow — R1b near: arming value .githooks via -c is allowed per command
+git -c core.hooksPath=.githooks commit -F - > /dev/null 2>&1 <<'MSG'
+msg
+MSG
+### warn:R1c — R1c fire: persistent arming via config is announced
+cd "$WT" && git config core.hooksPath .githooks && echo "hooksPath=$(git config --get core.hooksPath)"
+### allow — R4 near: ssh payload pipes something that is not a trigger
+ssh myhost 'cd /var/www/myhost && ls | tail -3'
+### allow — R5 near: divider echo after a plain pipeline
+grep -n foo f.txt | head -3 && echo "=== next ==="
+### allow — R1b near: -c arming with ./.githooks
+git -c core.hooksPath=./.githooks commit -m x
+### allow — R1b near: -c arming with quotes around the value
+git -c "core.hooksPath=.githooks" merge --no-edit origin/main
+### allow — R1b near: -c arming, other -c keys alongside
+git -c user.name=x -c core.hooksPath=.githooks status
+### block:R1b — R1b fire: -c with an empty value
+git -c core.hooksPath= commit -m x
+### block:R1b — R1b fire: -c with /dev/null
+git -c core.hooksPath=/dev/null commit -m x
+### block:R1b — R1b fire: -c with another directory
+git -c core.hooksPath=.git/hooks commit -m x
+### block:R1b — R1b fire: -c with a near-miss of the arming value
+git -c core.hooksPath=.githooks2 commit -m x
+### block:R1b — R1b fire: -c with a bare key
+git -c core.hooksPath commit -m x
+### block:R1b — R1b fire: config set to another value
+git config core.hooksPath /dev/null
+### block:R1b — R1b fire: config --replace-all with another value
+git config --replace-all core.hooksPath .git/hooks
+### allow — R1b near: arming commit with a heredoc message full of dangerous words
+git -c core.hooksPath=.githooks commit -F - <<'MSG'
+fix: never use --no-verify | tail && echo ok; git add -A
+MSG
+### warn:R1c — R1c fire: config set to .githooks
+git config core.hooksPath .githooks
+### warn:R1c — R1c fire: config set to ./.githooks
+git config core.hooksPath ./.githooks
+### warn:R1c — R1c fire: --local scope
+git config --local core.hooksPath .githooks
+### warn:R1c — R1c fire: --worktree scope in a worktree
+git -C "$WT" config --worktree core.hooksPath .githooks
+### warn:R1c — R1c fire: --global scope
+git config --global core.hooksPath .githooks
+### warn:R1c — R1c fire: chained after cd
+cd "$WT" && git config core.hooksPath .githooks
+### allow — R1c near: read with --get
+git config --get core.hooksPath
+### allow — R1c near: read with no value
+git config core.hooksPath
+### allow — R1c near: other key set to .githooks
+git config core.something .githooks
+### allow — R1c near: echoed text
+echo "git config core.hooksPath .githooks"
+### allow — R1c near: --get-all
+git config --get-all core.hooksPath
+### allow — R1c near: -c arming is allowed
+git -c core.hooksPath=.githooks log
+### block:R1b — R1c near: --unset is still R1b
+git config --unset core.hooksPath
+### block:R1b — R1c near: other value is R1b, not R1c
+git config core.hooksPath .githooks-old
+### warn:R4 — R4 fire: pm-preflight.sh piped is still a trigger
+bin/pm-preflight.sh --verify | tail -3
