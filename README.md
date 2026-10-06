@@ -63,11 +63,14 @@ bash claude-brain/pm-kit/doctor.sh --strict > "${TMPDIR:-/tmp}/doctor.log" 2>&1;
 <!-- quickstart:install:end -->
 
 Then commit what it added, push it, and check again. The push needs a remote
-called `origin` (`git remote add origin <url>` first).
+called `origin` (`git remote add origin <url>` first). The paths are named on
+purpose: the installed `.claude/hooks/bash-guard.sh` refuses `git add -A`, `--all`
+and a bare `.` from an agent session (rule R2), because a blanket add sweeps
+unrelated work from a shared tree into the commit.
 
 <!-- quickstart:publish:begin -->
 ```bash
-git add -A
+git add claude-brain bin docs .claude CLAUDE.md .gitignore .gitattributes
 git commit -q -m "Add cellarman"
 git push -q -u origin main
 bin/pm-preflight.sh > "${TMPDIR:-/tmp}/pf.log" 2>&1; echo "pre-flight exit: $?"
@@ -118,6 +121,10 @@ You can install it under `.claude/agents/` in the project instead; then point
 `PM_AGENT_INSTALLED` in `pm-kit.conf` at that path. `.claude/settings.json` wires
 the hooks described under "Hooks"; delete the block you do not want.
 
+The example profile sets `PF_AGENT_GUARDS` to the installed `.claude/hooks/bash-guard.sh`, so
+the pre-flight reports whether it is tracked, wired and self-test green. If you install the
+kit by hand without that hook, set `PF_AGENT_GUARDS=""` or the check warns that it does not exist.
+
 After the first run, make it yours: fill the bindings table and the annex in the
 agent file; replace the seed index's placeholders; in the profile, declare the
 migrations queue, deploy target and view graph if you have them (the kit's
@@ -143,8 +150,11 @@ The layout is fixed in one respect: the scripts expect the kit at
 - bash 3.2 or later, git, awk (gawk or mawk, in any locale), sed, grep, find,
   mktemp, cmp, comm, sort, od. `git` must understand `:(exclude)` pathspecs
   (any release since 1.9).
-- `jq`: optional for the two hooks under `skeleton/hooks/` (they fall back to
-  `sed`). Required by `load-telemetry.sh`, `session-ledger.sh` and `pm-sync`:
+- `jq`: required by `bash-guard.sh` (without it the guard prints `bash-guard INACTIVE`
+  on stderr and exits 1, failing open visibly, and its `--self-test` and the
+  pre-flight's `guards` check cannot run).
+- `jq`: optional for `pm-consult-nudge.sh` and `pm-report-back-gate.sh` under
+  `skeleton/hooks/` (they fall back to `sed`). Required by `load-telemetry.sh`, `session-ledger.sh` and `pm-sync`:
   without it they exit 0 and do nothing, which means no telemetry and no
   automatic memory commits, with no error. The doctor's hook-wiring check says
   which hooks are not wired; it cannot say that `jq` is missing.
@@ -312,25 +322,28 @@ written outside list items, and which shipped hooks are wired in
 | `pm-kit/load-telemetry.sh` | PostToolUse hook: counts topic-file reads. |
 | `pm-kit.conf.example` | Paths and budgets for the doctor, catalog, telemetry, sync. |
 | `profiles/example.conf` | Everything project-specific the kernel scripts read, and nothing they do not (`tests/conf-surface.sh` enforces both). |
-| `tests/` | `smoke.sh` (the audited defects), `ports.sh` (sync, ledger, claims), `init.sh`, `quickstart.sh` (runs the section above literally), `conf-surface.sh`. CI runs them on ubuntu and macOS, and `smoke.sh` and `ports.sh` again under mawk with `LC_ALL=C`. |
+| `tests/` | `smoke.sh` (the audited defects), `ports.sh` (sync, ledger, claims), `init.sh`, `quickstart.sh` (runs the section above literally), `conf-surface.sh`, `comply/selftest.sh` (the offline tests of the PM compliance harness). CI runs them on ubuntu and macOS (the comply selftest has been run on Linux by the author; macOS is CI-only), and `smoke.sh`, `ports.sh`, `init.sh`, `quickstart.sh` and the comply selftest again under mawk with `LC_ALL=C`. |
+| `tests/comply/` | The PM compliance harness: runs the PM agent on scripted consults and grades its tool calls with literal detectors. `run.sh` starts `claude` and costs real API money, so it is manual and never in CI; see [`tests/comply/README.md`](tests/comply/README.md). Scenarios are per instance. |
 | `skeleton/agent-example.md` | Agent file template with the bindings filled for a fictional project. |
 | `skeleton/CLAUDE.md.snippet` | The consultation rule for your CLAUDE.md. |
 | `skeleton/settings.example.json` | Hook wiring for `.claude/settings.json`. |
 | `skeleton/hooks/pm-consult-nudge.sh` | Optional SessionStart reminder. |
 | `skeleton/hooks/pm-report-back-gate.sh` | Optional one-shot gate on report-back consults. Off by default. |
+| `skeleton/hooks/bash-guard.sh`, `bash-guard.cases` | PreToolUse(Bash) guard for the agent's shell tool: refuses `--no-verify`, a changed `core.hooksPath`, a blanket `git add`, and a success message after a piped command; warns on an exit code read through a pipe. `init.sh` installs both files; the pre-flight watches it through `PF_AGENT_GUARDS` (tracked, wired, `--self-test` green). |
 | `skeleton/pm-sync.example.sh` | Session-scoped memory commit and guarded push. |
 | `skeleton/*.example*`, `skeleton/index-seed.md` | Templates for the index, claims, ownership map, arbitration register, git attributes, gitignore, pre-commit hook, launcher. |
 
 ### Hooks
 
-`skeleton/settings.example.json` wires four things. JSON has no comments, so
+`skeleton/settings.example.json` wires five things. JSON has no comments, so
 the notes are here. Event names, matchers, the `if` field and exec-form
 `args` are as documented at <https://code.claude.com/docs/en/hooks> (read
 2026-10-02).
 
 | event and matcher | script | needed? |
 |---|---|---|
-| `PostToolUse`, `Read` | `load-telemetry.sh` | For the doctor's dormancy check. |
+| `PreToolUse`, `Bash` | `bash-guard.sh` | Optional, installed by `init.sh`. The settings command first runs `bash -n` on the script and, if it is missing or does not parse, prints `bash-guard INACTIVE` on stderr and exits 1: the guard fails open, visibly, never with the exit code 2 that would block every command. See the script's header for what it does NOT stop. Configuration by environment: `BASH_GUARD_HOOKS_PATH` (default `.githooks`), `BASH_GUARD_EXITCODE_CMDS` (default `git push,git pull,git rebase,git merge`; `pm-preflight.sh` is always added). |
+| `PostToolUse`, `Read\|Skill` | `load-telemetry.sh` | For the doctor's dormancy check (the Read leg). The Skill leg appends `date`, session and skill name to `PM_SKILL_LOG`; nothing reads that log yet. Without `Skill` in the matcher the Skill leg never runs, and the doctor says so. |
 | `PostToolUse`, `Write\|Edit` | `session-ledger.sh` | For `pm-sync`: without it the sync commits nothing. |
 | `PostToolUse`, `Bash` with `if: Bash(git commit *)` and `Bash(git push *)` | `pm-sync.sh` | For automatic memory commits. The `if` filter is documented as best-effort. |
 | `SessionStart`, `startup\|clear\|compact` | `pm-consult-nudge.sh` | Optional. Remove the block if your CLAUDE.md carries the rule and you do not want the tokens (about 670 bytes per session start). |
@@ -345,8 +358,8 @@ deploy on the assumption that only your commits are going out.
 
 A hook cannot report its own absence, so `doctor.sh` does it from outside: it
 reads `.claude/settings.json` (and `settings.local.json`, and the user's
-`~/.claude/settings.json`) and reports, as `info`, which of the four scripts
-above are not mentioned in any of them. "Not wired" is never a failure, since
+`~/.claude/settings.json`) and reports, as `info`, which of the scripts
+above (and the Skill leg of the telemetry hook, by its matcher) are not mentioned in any of them. "Not wired" is never a failure, since
 hooks are optional, and the check matches by script name: it does not run the
 hook, so it cannot tell a broken wiring from a good one.
 
@@ -431,6 +444,10 @@ French text or an origin noun comes back into a script.
 The incidents behind these are in [`pm-kit/LESSONS.md`](pm-kit/LESSONS.md).
 
 ## Credits
+
+`skeleton/hooks/bash-guard.cases` adapts some of its `--no-verify` and `core.hooksPath` cases from
+[affaan-m/ecc](https://github.com/affaan-m/ecc) (`tests/hooks/block-no-verify.test.js`), MIT License,
+Copyright (c) 2026 Affaan Mustafa.
 
 The posture of this kit (caps in place of intentions, usage counters in place
 of self-reporting, dormant-entry detection as a hygiene signal) is inspired by

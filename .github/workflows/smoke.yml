@@ -56,6 +56,9 @@ jobs:
       - name: Quickstart (the README commands, run literally)
         if: always()
         run: bash tests/quickstart.sh
+      - name: Comply harness selftest (offline; a fake claude, no API call)
+        if: always()
+        run: bash tests/comply/selftest.sh
 
   mawk:
     name: smoke (ubuntu, mawk, LC_ALL=C)
@@ -88,6 +91,11 @@ jobs:
         env:
           LC_ALL: C
         run: bash tests/quickstart.sh
+      - name: Comply harness selftest under mawk and the C locale
+        if: always()
+        env:
+          LC_ALL: C
+        run: bash tests/comply/selftest.sh
 
   shellcheck:
     name: shellcheck
@@ -100,4 +108,4 @@ jobs:
           shellcheck -x \
             pm-kit/*.sh pm-kit/kernel/*.sh \
             skeleton/*.sh skeleton/hooks/*.sh skeleton/githooks-pre-commit.example \
-            tests/*.sh
+            tests/*.sh tests/comply/*.sh
