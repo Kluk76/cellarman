@@ -75,6 +75,8 @@ mk_proj() {
   cp -r "$C/pm-kit" "$KITREL"
   cp "$C/pm-kit.conf.example" claude-brain/pm-kit.conf
   mkdir -p "$KITREL/profiles" && cp "$C/profiles/example.conf" "$PROFILE"
+  # The example profile watches the shipped bash-guard hook; a sandbox that has not installed it declares none.
+  printf 'PF_AGENT_GUARDS=""\n' >> "$PROFILE"
   cp "$C/skeleton/bin-pm-preflight.example.sh" bin/pm-preflight.sh && chmod +x bin/pm-preflight.sh
   # the agent file, kernel pasted between its markers exactly as the README does
   awk '/^<!-- cellarman kernel: begin/{k=1} k; /^<!-- cellarman kernel: end/{k=0}' "$KITREL/PROTOCOL.md" > "$SB/kernel.$1.md"
@@ -1192,6 +1194,47 @@ cp "$SB/agent.tmp" claude-brain/agents/acme-pm.md; cp "$SB/agent.tmp" "$HOME/.cl
 git fetch -q origin
 run bash "$KITREL/doctor.sh" --strict
 { [ "$RC" = 0 ] && has 'agent file carries a kernel block' && has 'kernel tokens and bindings rows agree' && has 'kernel block identical to pm-kit/PROTOCOL.md' && lacks 'no kernel block'; }; check leftover "an agent file whose marker lines are indented still has its kernel found, checked and equal to PROTOCOL.md (rc=$RC)" $?
+
+###############################################################################
+# G — pre-flight `guards`: a guard hook is tracked, wired and its self-test green
+###############################################################################
+mk_proj pg remote
+mkdir -p .claude/hooks
+cp "$C/skeleton/hooks/bash-guard.sh" "$C/skeleton/hooks/bash-guard.cases" .claude/hooks/
+cp "$C/skeleton/settings.example.json" .claude/settings.json
+prof_set PF_AGENT_GUARDS '".claude/hooks/bash-guard.sh"'
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'WARN guards.*NOT tracked' "$OUTT"; }; check G1 "a guard that is on disk but untracked warns (rc=$RC)" $?
+commit_all "guard"
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'ok   guards.*tracked, wired in .claude/settings.json, self-test green' "$OUTT" && lacks 'WARN guards' "$OUTT"; }; check G2 "tracked, wired and self-test green: ok (rc=$RC)" $?
+printf '{"hooks":{"PostToolUse":[{"matcher":"Read","hooks":[{"type":"command","command":"x/load-telemetry.sh"}]}]}}\n' > .claude/settings.json
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ [ "$RC" = 1 ] && has 'WARN guards.*not referenced by any hook command' "$OUTT"; }; check G3 "a guard no hook command names warns, exit 1 (rc=$RC)" $?
+cp "$C/skeleton/settings.example.json" .claude/settings.json
+mv .claude/hooks/bash-guard.cases "$SB/guard.cases.away"
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'WARN guards.*tested NOTHING' "$OUTT" && lacks 'ok   guards' "$OUTT"; }; check G4 "a guard whose self-test exits 3 (no cases file) warns 'tested NOTHING' (rc=$RC)" $?
+printf 'cases\n\n### allow — wrong on purpose\ngit add -A\n' > .claude/hooks/bash-guard.cases
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'WARN guards.*self-test is RED (rc=1)' "$OUTT"; }; check G5 "a guard whose self-test is red (rc=1) warns RED (rc=$RC)" $?
+mv "$SB/guard.cases.away" .claude/hooks/bash-guard.cases
+rm -f .claude/hooks/bash-guard.sh
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'WARN guards.*does not exist' "$OUTT"; }; check G6 "a declared guard that does not exist warns (rc=$RC)" $?
+git checkout -q -- .claude/hooks/bash-guard.sh
+NOJQ_TOOLS="$(printf '%s' "$COMMON_TOOLS" | sed 's/ jq//')"
+# shellcheck disable=SC2086  # a word list
+mk_toolpath "$SB/nojq-pf" $NOJQ_TOOLS
+if [ ! -e "$SB/nojq-pf/jq" ]; then
+  run env PATH="$SB/nojq-pf" "$(command -v bash)" bin/pm-preflight.sh --no-fetch; strip
+  { has 'UNMEASURED guards.*jq not found' "$OUTT"; }; check G7 "without jq the wiring leg is UNMEASURED, not a pass (rc=$RC)" $?
+else
+  skip G7 "could not build a jq-less PATH"
+fi
+mk_proj pg0 remote
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ lacks 'guards' "$OUTT"; }; check G8 "PF_AGENT_GUARDS empty: the check reports nothing (rc=$RC)" $?
 
 ###############################################################################
 # H — the skeleton bash-guard hook, and the settings wrapper that runs it

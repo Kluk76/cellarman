@@ -412,6 +412,56 @@ if [ -d "$REPO_ROOT/$HOOKS_DIR" ]; then
   fi
 fi
 
+# A PreToolUse guard script cannot detect its own absence either: it is inert if the
+# settings file stops naming it, if the file goes untracked (a pull then does not carry
+# it), or if its --self-test is red on THIS machine (rules and cases disagree). Three
+# legs per path in PF_AGENT_GUARDS: tracked, wired (jq over the settings' hook commands,
+# matched by the script's file name), self-test green (exit 0; 3 = tested nothing; any
+# other non-zero = red). It only WARNS. Nothing here contacts a remote, so PM_OFFLINE
+# changes nothing. Empty PF_AGENT_GUARDS: the check reports nothing.
+# mktemp -d: a predictable $TMPDIR/pmpf.$$ can be pre-created by someone else. It is made
+# here because this check is its first user, and removed on exit.
+TMP="$(mktemp -d "${TMPDIR:-/tmp}/pmpf.XXXXXX")" || exit 3
+trap 'rm -rf "$TMP"' EXIT INT TERM
+: "${AGENT_GUARDS:=${PF_AGENT_GUARDS:-}}"
+: "${AGENT_GUARD_SETTINGS:=${PF_AGENT_GUARD_SETTINGS:-.claude/settings.json}}"
+if [ -n "$AGENT_GUARDS" ]; then
+  _have_jq=0; command -v jq >/dev/null 2>&1 && _have_jq=1
+  for G in $AGENT_GUARDS; do
+    if [ ! -f "$REPO_ROOT/$G" ]; then
+      warn guards "$G is declared in PF_AGENT_GUARDS and does not exist"
+      continue
+    fi
+    _gbad=0
+    if ! git ls-files --error-unmatch -- "$G" >/dev/null 2>&1; then
+      warn guards "$G is NOT tracked by git: another clone's pull does not carry it; commit it"
+      _gbad=1
+    fi
+    if [ "$_have_jq" = 0 ]; then
+      unmeasured guards "jq not found: cannot read $AGENT_GUARD_SETTINGS to tell whether $G is wired"
+      _gbad=1
+    elif [ ! -f "$REPO_ROOT/$AGENT_GUARD_SETTINGS" ]; then
+      warn guards "$G is not wired: $AGENT_GUARD_SETTINGS does not exist, so no session runs it"
+      _gbad=1
+    elif ! jq -r '[.hooks[]?[]?.hooks[]?.command // empty] | .[]' "$REPO_ROOT/$AGENT_GUARD_SETTINGS" > "$TMP/guard-cmds" 2>/dev/null; then
+      unmeasured guards "$AGENT_GUARD_SETTINGS is not readable as JSON: cannot tell whether $G is wired"
+      _gbad=1
+    elif ! grep -F -q -- "${G##*/}" "$TMP/guard-cmds"; then
+      warn guards "$G is not referenced by any hook command in $AGENT_GUARD_SETTINGS: it is on disk but no session runs it"
+      _gbad=1
+    fi
+    bash "$REPO_ROOT/$G" --self-test > "$TMP/guard-selftest.log" 2>&1; _grc=$?
+    if [ "$_grc" = 3 ]; then
+      warn guards "$G --self-test tested NOTHING (rc=3: cases file missing or empty)"
+      _gbad=1
+    elif [ "$_grc" != 0 ]; then
+      warn guards "$G --self-test is RED (rc=$_grc): its rules and cases disagree on this machine; last lines: $(tail -n 3 "$TMP/guard-selftest.log" | tr '\n' '|')"
+      _gbad=1
+    fi
+    [ "$_gbad" = 0 ] && ok guards "$G: tracked, wired in $AGENT_GUARD_SETTINGS, self-test green"
+  done
+fi
+
 # ── P2. Migration queue — three-way: disk ↔ shared reference ↔ deploy target ────
 # The migration runner applies the ENTIRE pending lot in lexical filename order,
 # and a deploy makes the other dev's committed-but-unapplied migrations
@@ -419,9 +469,7 @@ fi
 # dir ON THE DEPLOY TARGET and never the shared reference ($UPSTREAM). The only
 # measure that decides, in BOTH directions, is a diff.
 sec "P2 · migration queue"
-# mktemp -d: a predictable $TMPDIR/pmpf.$$ can be pre-created by someone else.
-TMP="$(mktemp -d "${TMPDIR:-/tmp}/pmpf.XXXXXX")" || exit 3
-trap 'rm -rf "$TMP"' EXIT INT TERM
+# $TMP was made before the guards check above, which is its first user.
 
 if [ -z "$MIG_DIR" ]; then
   # No queue declared: measure nothing. (An empty PF_QUEUE_DIR used to be globbed as
