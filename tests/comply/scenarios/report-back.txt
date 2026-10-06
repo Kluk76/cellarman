@@ -1,0 +1,11 @@
+kind: report-back
+level: neutral
+files: 
+enabled: no
+
+v2 STUB, DISABLED. The report-back kind writes memory (build log, index line, shipped register), so it needs a write-capable sandbox, a "paths written" detector and
+an assertion that the real memory did not move. Until those exist run.sh refuses this file. See README "v2".
+
+consult: report-back
+
+(prompt to be written in v2)

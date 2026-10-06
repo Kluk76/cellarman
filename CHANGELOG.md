@@ -4,6 +4,62 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/) from 0.2.0 on.
 
+## [0.3.0] - 2026-10-06
+
+Kernel Step 0 hardened, a compliance harness for the PM model, and a guard for the
+agent's shell tool. Run `pm-kit/init.sh` on a new project, or for an installed one
+re-instantiate the kernel (PROTOCOL.md, "Instantiating") and copy the new files by hand.
+
+### Added
+
+- **Kernel, Step 0 (protocol v3.1).** The pre-flight command writes to a fresh
+  `mktemp` file and prints its name with the exit code; a consult cannot waive Steps
+  0 to 2 (a request to skip them is named in the first line and the steps run anyway);
+  and the output file must be "yours alone", never a fixed shared path such as
+  `/tmp/pf.out`. The kernel block's sha256 changes
+  (`39b91de2...` to `a2697975...`): the doctor reports an agent file carrying the old
+  block as drift. `pm-kit/KERNEL-MIGRATION.md` has a "v3 -> v3.1" section; the v3
+  table is untouched.
+- **`tests/comply/`, the PM compliance harness.** `run.sh --repo <instance>` runs the
+  PM agent on scripted consults in a sandbox copy of the instance's `HEAD` (a local bare
+  `origin`, hooks disabled, `ssh`/`scp` stubbed) and grades its tool calls with literal
+  detectors (pre-flight first, with the files, unpiped, to a private file; index read
+  whole; rails and shipped lookups; verdict reported; no write; no remote). Paths come
+  from the instance's `claude-brain/pm-kit.conf`, the agent name from the agent file's
+  frontmatter. Scenarios are per instance; the shipped ones are written for the `acme`
+  example. A real run costs API money and is manual only; CI runs only `selftest.sh`
+  (52 offline cases against a fake `claude`).
+- **Pre-flight `guards` check.** `PF_AGENT_GUARDS` (space-separated repo-relative paths,
+  default `.claude/hooks/bash-guard.sh`) and `PF_AGENT_GUARD_SETTINGS` in the profile.
+  For each guard it warns when the script is untracked, not named by any hook command
+  in the settings file, or its `--self-test` is red (exit 3 = tested nothing); `jq`
+  absent is UNMEASURED. Empty `PF_AGENT_GUARDS`: the check reports nothing. Note that it
+  runs the guard's self-test on every pre-flight (about 10 to 20 seconds for the
+  shipped guard on a slow machine).
+- **`load-telemetry.sh` Skill leg.** Dispatches on `.tool_name`; a Skill-tool load
+  appends `date<TAB>session8<TAB>skill` to `PM_SKILL_LOG` (new in `pm-kit.conf.example`
+  and `skeleton/gitignore.example`) when the name matches `^[A-Za-z0-9._:@/-]{1,128}$`.
+  The doctor's hook-wiring check now also reports a telemetry hook whose matcher lacks
+  `Skill`, and lists `bash-guard.sh`.
+- **`skeleton/hooks/bash-guard.sh` and `bash-guard.cases`.** A PreToolUse(Bash) guard
+  with generic rules only: R1 (`--no-verify` / `-n` on git commit and push; `push -n` is
+  a dry run), R1b and R1c (`core.hooksPath` against `BASH_GUARD_HOOKS_PATH`, default
+  `.githooks`), R2 (`git add -A`, `--all`, bare `.`), R4 (an exit-code command in a
+  non-last pipe stage, from `BASH_GUARD_EXITCODE_CMDS`), R5 (`&& echo` after such a
+  pipeline). Fails open visibly, `--self-test` with exit 0 / 1 / 3. `init.sh` installs the
+  script and its cases file, and `settings.example.json` wires it behind a `bash -n`
+  wrapper. Some cases are adapted from affaan-m/ecc (MIT; notice kept in the file).
+
+### Changed
+
+- `skeleton/settings.example.json`: the telemetry matcher is `Read|Skill`, and a
+  PreToolUse(Bash) block wires `bash-guard.sh`.
+- The README quickstart's publish block names its paths instead of `git add -A`, which
+  the installed guard refuses (R2).
+- `pm-kit/init.sh` also copies `skeleton/hooks/*.cases`.
+- `tests/smoke.sh` gives its sandbox projects an empty `PF_AGENT_GUARDS`, and adds cases
+  for the guards check, the Skill leg and bash-guard (including the fail-open proof).
+
 ## [0.2.1] - 2026-10-02
 
 Three small script fixes.

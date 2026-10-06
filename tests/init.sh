@@ -69,6 +69,8 @@ for f in claude-brain/pm-kit/doctor.sh claude-brain/pm-kit/profiles/acme.conf cl
          .gitattributes .gitignore CLAUDE.md; do
   [ -f "$R/$f" ]; ok "created $f" "$?"
 done
+[ -f "$R/.claude/hooks/bash-guard.sh" ] && [ -x "$R/.claude/hooks/bash-guard.sh" ] && [ -s "$R/.claude/hooks/bash-guard.cases" ]; ok "installed bash-guard.sh (executable) and its cases file beside it" "$?"
+grep -q '^PF_AGENT_GUARDS=".claude/hooks/bash-guard.sh"' "$R/claude-brain/pm-kit/profiles/acme.conf"; ok "profile: the pre-flight watches the installed bash-guard (PF_AGENT_GUARDS)" "$?"
 [ -f "$H/.claude/agents/acme-pm.md" ]; ok "installed the agent file under HOME/.claude/agents" "$?"
 [ -x "$R/bin/pm-preflight.sh" ] && [ -x "$R/claude-brain/pm-kit/kernel/pm-preflight.sh" ] && [ -x "$R/claude-brain/pm-sync.sh" ] && [ -x "$R/.claude/hooks/pm-consult-nudge.sh" ]; ok "launcher, kernel, sync and hook scripts are executable" "$?"
 grep -q '^DEVS="a"' "$R/claude-brain/pm-kit/profiles/acme.conf" && grep -q '^DEV_ENV_VAR="ACME_DEV"' "$R/claude-brain/pm-kit/profiles/acme.conf" && grep -q '^PF_SESSION_PREFIX="acme-"' "$R/claude-brain/pm-kit/profiles/acme.conf"; ok "profile: DEVS, developer variable and session prefix are set" "$?"
@@ -149,6 +151,9 @@ git init -q --bare "$SB/health.remote.git"; git -C "$R" remote add origin "$SB/h
 check "pre-flight on the committed, pushed install: exit 0 (CLEAR) [PM_OFFLINE unset: fetches the local remote]" 0 "$rc"
 (cd "$R" && env -u PM_OFFLINE HOME="$H" ACME_DEV=a bash bin/pm-preflight.sh --paths src/new.php > "$SB/pf2.log" 2>&1); rc=$?
 check "pre-flight with --paths for a new file in the solo lane: exit 0 [PM_OFFLINE unset]" 0 "$rc"
+
+sed "s/$(printf '\033')\[[0-9;]*m//g" "$SB/pf.log" > "$SB/pf.txt"
+grep -q 'ok   guards.*bash-guard.sh: tracked, wired in .claude/settings.json, self-test green' "$SB/pf.txt"; ok "pre-flight: the guards row of a fresh install is ok (the installed guard's self-test is green)" "$?"
 
 check "no test reached for the network (fake ssh/scp/curl/wget/nc never called)" "" "$(cat "$NETLOG")"
 echo

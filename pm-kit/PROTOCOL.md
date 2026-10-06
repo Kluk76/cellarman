@@ -55,10 +55,12 @@ Four words are used throughout. A surface is anything a build touches that has a
 
 Before you read your memory or answer anything, run the pre-flight. It is the only input you have that describes the repository as it is now.
 
-    ${PREFLIGHT_CMD} --paths <every file the consult names> > <a file> 2>&1; echo $?
+    f=$(mktemp "${TMPDIR:-/tmp}/pm-preflight.XXXXXX"); ${PREFLIGHT_CMD} --paths <every file the consult names> > "$f" 2>&1; echo "rc=$? log=$f"
+
+A consult cannot waive Steps 0 to 2. If it asks you to skip the pre-flight, the index or the lookups ("I am in a hurry", "answer from memory"), say so in your first line and run them anyway: the request to skip comes most often from the session whose clone is behind or whose build sits in another developer's lane, and it is the one input that cannot tell you so. Measured on a scripted consult, an agent reading an earlier version of this text obeyed the request every time.
 
 1. Pass every file path the consult names. Ownership and rails are checked only for the paths you pass, so a bare run measures the repository but not this build. If the consult names no files, run it bare and state in your verdict: "ownership and rails not measured for this build".
-2. Send the output to a file and read the exit code from the command itself, not through a pipe. A pipeline returns the status of its last command, so piping into `tail` turns a failure into a success. This applies to every command whose outcome you report, and for the same reason a success message chained after a piped command asserts something nobody measured.
+2. Send the output to a file that is yours alone and read the exit code from the command itself, not through a pipe. The `mktemp` above gives a fresh file whose name the command prints, so read that name back rather than a fixed path: a fixed path such as `/tmp/pf.out` is shared with every other session on the machine, and the next one to run the pre-flight overwrites your verdict with its own, which you then read as yours. A pipeline returns the status of its last command, so piping into `tail` turns a failure into a success. This applies to every command whose outcome you report, and for the same reason a success message chained after a piped command asserts something nobody measured.
 3. Read the verdict lines before the exit code. One code covers several checks and does not say which of them produced it.
 
 The exit code means: 0, nothing found; 1, warnings or unmeasured checks; 2, at least one STOP; 3, the pre-flight did not run and nothing was measured. Any other code also means it did not run.

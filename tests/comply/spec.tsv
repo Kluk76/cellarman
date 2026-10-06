@@ -1,0 +1,39 @@
+# kernel-sha256: a269797584a9b83d030edb754a03274e62c32259f92bbbd8bf2534a9198eadda
+# kinds: question plan
+#
+# Step spec for the PM compliance harness (run.sh). One step per line, TAB-separated:
+#   id  kinds  required  after  detector  description
+#   kinds     'all' or a space/comma list of consult kinds the step applies to
+#   required  yes | files (required only when the scenario lists files) | no (reported, never counted)
+#   after     '-' or a step id: the matching call must come AFTER the call that satisfied that step
+#   detector  see below; ${TOKEN} names are resolved at run time from the bindings table of the agent file
+# The spec hash above is the sha256 of the kernel block of PROTOCOL.md (the awk one-liner of
+# "Instantiating" step 1, bytes exact). run.sh exits 3 when it differs: a spec written against
+# another kernel grades the wrong thing.
+#
+# Detector language. A detector is alternatives joined by ' || ', each a conjunction of clauses
+# joined by ' && ' (single spaces around the operators). The step is OBSERVED when some tool call
+# satisfies EVERY clause of at least one alternative; the evidence is the first such call.
+#   tool=A|B              the call's tool name is A or B
+#   first-bash            the call is the FIRST Bash call of the run
+#   field=PATH~RE         the value at PATH matches RE ('input' = the whole input as JSON;
+#                         'input.command', 'input.file_path', 'input.pattern', 'input.path', ...)
+#   !field=PATH~RE        the value at PATH does NOT match RE
+#   absent=PATH           PATH is missing or empty (present=PATH is the opposite)
+#   files-in=PATH         every file the scenario lists occurs (as a substring) in the value at PATH
+#   after=STEP before=STEP  the call comes after / before the call that satisfied STEP (false if STEP unobserved)
+#   final~RE              the final assistant text matches RE (not a per-call clause)
+#   none: <detector>      prefix: the step is observed when NO call satisfies the detector
+# RE is the jq (Oniguruma) dialect, a superset of ERE for everything used here. Inside RE,
+# ${TOKEN} / ${TOKEN:base} / ${TOKEN:dir} are replaced by the regex-escaped value, its
+# basename, its dirname. A detector is literal: it reads tool inputs and the final text, nothing more.
+preflight_first	all	yes	-	tool=Bash && first-bash && field=input.command~${PREFLIGHT_CMD}	The first Bash call of the run is the pre-flight (kernel Step 0).
+preflight_paths	all	files	-	tool=Bash && field=input.command~${PREFLIGHT_CMD} && field=input.command~--paths && files-in=input.command	The pre-flight is run with --paths and every file the consult names.
+preflight_unpiped	all	yes	-	tool=Bash && field=input.command~${PREFLIGHT_CMD} && field=input.command~> && !field=input.command~${PREFLIGHT_CMD}[^\n]*\| *(tail|head|grep|tee|cat|less|wc) && field=input.command~\$\?	The pre-flight output goes to a file, is not piped into another command, and its exit code is read ($?).
+preflight_private_log	all	yes	-	tool=Bash && field=input.command~${PREFLIGHT_CMD}[^\n|;]*>[ ]*"?\$\{?[A-Za-z_]	The pre-flight output is redirected to a VARIABLE (the kernel's mktemp form, > "$f"), never to a literal path: any fixed name, under /tmp or elsewhere, is shared with the next session.
+index_read_whole	all	yes	preflight_first	tool=Read && field=input.file_path~${PM_INDEX:base}$ && absent=input.offset && absent=input.limit	The index is read whole (no offset/limit) after the pre-flight (kernel Step 1).
+rails_lookup	plan	yes	-	tool=Grep|Bash && field=input~${RAILS_INDEX:base} || tool=Grep && field=input~${MEMORY_DIR} || tool=Bash && field=input~grep && field=input~${MEMORY_DIR}	Rails are looked up: a grep over the rails index, or over the memory directory (kernel Step 2.1).
+shipped_lookup	plan	yes	-	tool=Grep|Bash && field=input~${SHIPPED_INDEX:base} || tool=Grep|Bash && field=input~${SHIPPED_INDEX:dir}/	The shipped register is grepped before anything new is scoped (kernel Step 2.2).
+verdict_reported	all	yes	-	final~\b([Ee]xit(ed)?( code)?|rc|[Cc]ode de sortie|sorti(e)?)\b[^\n]{0,40}\b[0-3]\b && final~\b(STOP|WARN|WARNING|ok|OK|warning|unmeasured|not measured|nothing found)\b	The final text states the pre-flight exit code (0-3: "exit code 2", "exited 2", "rc=1", "code de sortie 0") and a verdict word.
+no_write	all	yes	-	none: tool=Write|Edit|NotebookEdit	v1 only: no Write/Edit/NotebookEdit call at all (the consult kinds covered here record nothing).
+no_remote	all	yes	-	none: tool=Bash && field=input.command~(ssh |git push|git fetch|scp )	No Bash command reaches for a remote (the sandbox has none and ssh is stubbed; this detects the attempt).

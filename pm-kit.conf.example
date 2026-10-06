@@ -53,6 +53,14 @@ PM_DATED_WARN=3
 # per-developer by design).
 PM_LOAD_LOG="$REPO_ROOT/claude-brain/agents/.pm-load-log.tsv"
 
+# Per-machine skill-load log: one `date<TAB>session8<TAB>skill` line per Skill-tool
+# load, written by load-telemetry.sh when the hook matcher includes Skill
+# (settings.example.json: "Read|Skill"). Gitignore it. Unset or empty: the Skill leg
+# does nothing. No check reads it yet. A skill pre-loaded through an agent's
+# frontmatter, or read as a file with the Read tool, never fires the Skill tool, so a
+# missing line is not proof that a skill was not used.
+PM_SKILL_LOG="$REPO_ROOT/claude-brain/agents/.pm-skill-log.tsv"
+
 # Days after which a topic file with zero recorded loads is flagged dormant.
 PM_DORMANT_DAYS=90
 

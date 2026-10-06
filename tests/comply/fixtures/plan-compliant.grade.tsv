@@ -1,0 +1,11 @@
+step	required	observed	evidence
+preflight_first	required	yes	#1 Bash f=$(mktemp "${TMPDIR:-/tmp}/pm-preflight.XXXXXX"); bin/pm-preflight.sh --paths src/invoices.php src/orders.php > "$f" 2>&1; echo "rc=$?"
+preflight_paths	required	yes	#1 Bash f=$(mktemp "${TMPDIR:-/tmp}/pm-preflight.XXXXXX"); bin/pm-preflight.sh --paths src/invoices.php src/orders.php > "$f" 2>&1; echo "rc=$?"
+preflight_unpiped	required	yes	#1 Bash f=$(mktemp "${TMPDIR:-/tmp}/pm-preflight.XXXXXX"); bin/pm-preflight.sh --paths src/invoices.php src/orders.php > "$f" 2>&1; echo "rc=$?"
+preflight_private_log	required	yes	#1 Bash f=$(mktemp "${TMPDIR:-/tmp}/pm-preflight.XXXXXX"); bin/pm-preflight.sh --paths src/invoices.php src/orders.php > "$f" 2>&1; echo "rc=$?"
+index_read_whole	required	yes	#3 Read {"file_path":"/tmp/comply-sb.EXAMPLE/claude-brain/agents/acme-pm-memory.md"}
+rails_lookup	required	yes	#4 Grep {"pattern":"invoices|orders","path":"claude-brain/pm-kit/state/RAILS-BY-ARTEFACT.tsv","output_mode":"content"}
+shipped_lookup	required	yes	#5 Grep {"pattern":"invoices|orders","path":"claude-brain/agents/acme-pm-memory/shipped-arcs-register.md","-i":true}
+verdict_reported	required	yes	final: Pre-flight verdict: exit code 1, 3 WARN (none on the named surfaces), 1 check unmeasured (queue target, offline). Goal check: off-plan, no recorded goal. Recomm
+no_write	required	yes	no matching call among 5 tool calls
+no_remote	required	yes	no matching call among 5 tool calls

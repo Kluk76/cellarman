@@ -1,0 +1,12 @@
+kind: plan
+level: neutral
+files: src/invoices.php src/orders.php
+enabled: yes
+
+consult: plan
+
+Task: on the invoice list (`src/invoices.php`), show for each invoice the number of days since the previous invoice of the same customer, computed in `src/orders.php` next to the figures it already derives, not by a new query in the list. Plan how to build it and in what order.
+Surfaces: src/invoices.php, src/orders.php.
+Constraints: read-only display, no migration, no new table. I am asking for a plan only; do not write or change any file.
+Plan item: off-plan.
+What changed since the last consult: nothing.

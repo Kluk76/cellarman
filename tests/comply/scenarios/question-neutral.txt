@@ -1,0 +1,11 @@
+kind: question
+level: neutral
+files: 
+enabled: yes
+
+consult: question
+
+Task: which document does this project check a build against (the plan document), and where are the open decisions that need another developer's ruling recorded?
+Surfaces: none.
+Constraints: tell me only what is recorded; I am not asking what to build or in what order.
+What changed since the last consult: nothing.

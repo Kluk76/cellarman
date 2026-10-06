@@ -75,6 +75,8 @@ mk_proj() {
   cp -r "$C/pm-kit" "$KITREL"
   cp "$C/pm-kit.conf.example" claude-brain/pm-kit.conf
   mkdir -p "$KITREL/profiles" && cp "$C/profiles/example.conf" "$PROFILE"
+  # The example profile watches the shipped bash-guard hook; a sandbox that has not installed it declares none.
+  printf 'PF_AGENT_GUARDS=""\n' >> "$PROFILE"
   cp "$C/skeleton/bin-pm-preflight.example.sh" bin/pm-preflight.sh && chmod +x bin/pm-preflight.sh
   # the agent file, kernel pasted between its markers exactly as the README does
   awk '/^<!-- cellarman kernel: begin/{k=1} k; /^<!-- cellarman kernel: end/{k=0}' "$KITREL/PROTOCOL.md" > "$SB/kernel.$1.md"
@@ -986,10 +988,13 @@ run bash "$KITREL/doctor.sh" --strict
 { [ "$RC" = 0 ] && has 'info — hooks not wired.*load-telemetry.sh.*session-ledger.sh.*pm-sync.sh' && lacks 'WARN.*hooks' && lacks 'FAIL.*hooks'; }; check 7d "no settings.json: hooks reported 'not wired' as info, strict still passes (rc=$RC)" $?
 mkdir -p .claude; cp "$C/skeleton/settings.example.json" .claude/settings.json
 run bash "$KITREL/doctor.sh" --strict
-{ [ "$RC" = 0 ] && has 'ok   — hooks wired in settings: load-telemetry.sh session-ledger.sh pm-sync.sh pm-consult-nudge.sh'; }; check 7d "the shipped settings.example.json counts as fully wired (rc=$RC)" $?
+{ [ "$RC" = 0 ] && has 'ok   — hooks wired in settings: load-telemetry.sh session-ledger.sh pm-sync.sh pm-consult-nudge.sh bash-guard.sh load-telemetry-skill-leg'; }; check 7d "the shipped settings.example.json counts as fully wired (rc=$RC)" $?
 printf '{"hooks":{"PostToolUse":[{"matcher":"Read","hooks":[{"type":"command","command":"x/load-telemetry.sh"}]}]}}\n' > .claude/settings.json
 run bash "$KITREL/doctor.sh"
-{ has 'info — hooks not wired.*session-ledger.sh.*pm-sync.sh' && lacks 'optional):[^;]*load-telemetry' && has 'wired: load-telemetry.sh'; }; check 7d "a partial wiring names only the missing hooks" $?
+{ has 'info — hooks not wired.*session-ledger.sh.*pm-sync.sh' && lacks 'optional):[^;]*load-telemetry\.sh' && has 'optional):.*load-telemetry-skill-leg' && has 'wired: load-telemetry.sh'; }; check 7d "a partial wiring names only the missing hooks; a Read-only matcher leaves the Skill leg unwired" $?
+printf '{"hooks":{"PostToolUse":[{"matcher":"Read|Skill","hooks":[{"type":"command","command":"x/load-telemetry.sh"}]}]}}\n' > .claude/settings.json
+run bash "$KITREL/doctor.sh"
+{ lacks 'load-telemetry-skill-leg.*—' && has 'wired:.*load-telemetry-skill-leg'; }; check 7d "a Read|Skill matcher counts the Skill leg as wired" $?
 # (e) rails outside list items
 mk_proj pd7e remote
 printf '\n🔴 never edit `app/db.php` by hand\n\n> ⛔ `ref_users` is read by two views\n\n- ⛔ `app/ok.php` is sealed\n  🔴 continuation about `app/ok2.php` stays a rail\n' >> "$INDEX"
@@ -1126,7 +1131,7 @@ cd "$PROJ" 2>/dev/null || true
 ###############################################################################
 cd "$C" || exit 64
 V="$(tr -d ' \n' < VERSION)"
-{ [ "$V" = 0.2.1 ]; }; check 16 "VERSION is 0.2.1 (got '$V')" $?
+{ [ "$V" = 0.3.0 ]; }; check 16 "VERSION is 0.3.0 (got '$V')" $?
 { grep -q "^## \[$V\] - " CHANGELOG.md && ! grep -q '^## \[Unreleased\]' CHANGELOG.md; }; check 16 "CHANGELOG has a dated entry for the VERSION and no Unreleased section" $?
 for w in 'Exit code 3 means' 'past `PF_ARB_STOP_DAYS` are an ambient WARN' 'does not push unless asked' 'ambient' 'Solo mode'; do
   grep -qF "$w" CHANGELOG.md; check 16 "CHANGELOG 'Behaviour changes' mentions: $w" $?
@@ -1192,6 +1197,111 @@ cp "$SB/agent.tmp" claude-brain/agents/acme-pm.md; cp "$SB/agent.tmp" "$HOME/.cl
 git fetch -q origin
 run bash "$KITREL/doctor.sh" --strict
 { [ "$RC" = 0 ] && has 'agent file carries a kernel block' && has 'kernel tokens and bindings rows agree' && has 'kernel block identical to pm-kit/PROTOCOL.md' && lacks 'no kernel block'; }; check leftover "an agent file whose marker lines are indented still has its kernel found, checked and equal to PROTOCOL.md (rc=$RC)" $?
+
+###############################################################################
+# G — pre-flight `guards`: a guard hook is tracked, wired and its self-test green
+###############################################################################
+mk_proj pg remote
+mkdir -p .claude/hooks
+cp "$C/skeleton/hooks/bash-guard.sh" "$C/skeleton/hooks/bash-guard.cases" .claude/hooks/
+cp "$C/skeleton/settings.example.json" .claude/settings.json
+prof_set PF_AGENT_GUARDS '".claude/hooks/bash-guard.sh"'
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'WARN guards.*NOT tracked' "$OUTT"; }; check G1 "a guard that is on disk but untracked warns (rc=$RC)" $?
+commit_all "guard"
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'ok   guards.*tracked, wired in .claude/settings.json, self-test green' "$OUTT" && lacks 'WARN guards' "$OUTT"; }; check G2 "tracked, wired and self-test green: ok (rc=$RC)" $?
+printf '{"hooks":{"PostToolUse":[{"matcher":"Read","hooks":[{"type":"command","command":"x/load-telemetry.sh"}]}]}}\n' > .claude/settings.json
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ [ "$RC" = 1 ] && has 'WARN guards.*not referenced by any hook command' "$OUTT"; }; check G3 "a guard no hook command names warns, exit 1 (rc=$RC)" $?
+cp "$C/skeleton/settings.example.json" .claude/settings.json
+mv .claude/hooks/bash-guard.cases "$SB/guard.cases.away"
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'WARN guards.*tested NOTHING' "$OUTT" && lacks 'ok   guards' "$OUTT"; }; check G4 "a guard whose self-test exits 3 (no cases file) warns 'tested NOTHING' (rc=$RC)" $?
+printf 'cases\n\n### allow — wrong on purpose\ngit add -A\n' > .claude/hooks/bash-guard.cases
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'WARN guards.*self-test is RED (rc=1)' "$OUTT"; }; check G5 "a guard whose self-test is red (rc=1) warns RED (rc=$RC)" $?
+mv "$SB/guard.cases.away" .claude/hooks/bash-guard.cases
+rm -f .claude/hooks/bash-guard.sh
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ has 'WARN guards.*does not exist' "$OUTT"; }; check G6 "a declared guard that does not exist warns (rc=$RC)" $?
+git checkout -q -- .claude/hooks/bash-guard.sh
+NOJQ_TOOLS="$(printf '%s' "$COMMON_TOOLS" | sed 's/ jq//')"
+# shellcheck disable=SC2086  # a word list
+mk_toolpath "$SB/nojq-pf" $NOJQ_TOOLS
+if [ ! -e "$SB/nojq-pf/jq" ]; then
+  run env PATH="$SB/nojq-pf" "$(command -v bash)" bin/pm-preflight.sh --no-fetch; strip
+  { has 'UNMEASURED guards.*jq not found' "$OUTT"; }; check G7 "without jq the wiring leg is UNMEASURED, not a pass (rc=$RC)" $?
+else
+  skip G7 "could not build a jq-less PATH"
+fi
+mk_proj pg0 remote
+run bash bin/pm-preflight.sh --no-fetch; strip
+{ lacks 'guards' "$OUTT"; }; check G8 "PF_AGENT_GUARDS empty: the check reports nothing (rc=$RC)" $?
+
+###############################################################################
+# T — load-telemetry.sh Skill leg
+###############################################################################
+mk_proj pt remote
+SKL=claude-brain/agents/.pm-skill-log.tsv
+skill_hook() { printf '%s' "$1" > "$SB/skill.json"; run bash "$KITREL/load-telemetry.sh" < "$SB/skill.json"; }
+skill_hook '{"tool_name":"Skill","session_id":"abcdef123456","tool_input":{"skill":"my-skill"}}'
+{ [ "$RC" = 0 ] && [ "$(cat "$SKL")" = "$(date +%F)${TAB}abcdef12${TAB}my-skill" ]; }; check T1 "a Skill call is logged as date, session8, skill (rc=$RC)" $?
+: > "$SKL"
+skill_hook '{"tool_name":"Skill","tool_input":{"skill":"plugin:name/x@1.0"}}'
+{ [ "$(cat "$SKL")" = "$(date +%F)${TAB}unknown${TAB}plugin:name/x@1.0" ]; }; check T2 "no session id: 'unknown'; the name charset includes : / @ . (rc=$RC)" $?
+: > "$SKL"
+skill_hook '{"tool_name":"Skill","tool_input":{"skill":"bad name; rm -rf x"}}'
+skill_hook '{"tool_name":"Skill","tool_input":{"skill":"ok\n"}}'
+skill_hook '{"tool_name":"Skill","tool_input":{"skill":""}}'
+skill_hook '{"tool_name":"Skill","tool_input":{"skill":["a"]}}'
+{ [ ! -s "$SKL" ]; }; check T3 "a name outside the charset (space, ;, trailing newline, empty, not a string) is not recorded" $?
+skill_hook '{"tool_name":"Bash","tool_input":{"command":"ls"}}'
+{ [ ! -s "$SKL" ]; }; check T4 "any other tool is not recorded in the skill log" $?
+mkdir -p "$MEMDIR"; printf '# t\n' > "$MEMDIR/journal.md"; : > claude-brain/agents/.pm-load-log.tsv
+skill_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJ/$MEMDIR/journal.md\"}}"
+{ grep -q "${TAB}journal.md\$" claude-brain/agents/.pm-load-log.tsv && [ ! -s "$SKL" ]; }; check T5 "tool_name Read still takes the Read leg (and writes nothing to the skill log)" $?
+printf 'PM_SKILL_LOG=""\n' >> claude-brain/pm-kit.conf
+skill_hook '{"tool_name":"Skill","tool_input":{"skill":"my-skill"}}'
+{ [ "$RC" = 0 ] && [ ! -s "$SKL" ]; }; check T6 "PM_SKILL_LOG empty: the Skill leg does nothing, exit 0" $?
+
+###############################################################################
+# H — the skeleton bash-guard hook, and the settings wrapper that runs it
+###############################################################################
+run bash "$C/skeleton/hooks/bash-guard.sh" --self-test
+{ [ "$RC" = 0 ] && has ' 0 failed'; }; check H1 "bash-guard --self-test is green: exit 0 (rc=$RC)" $?
+mkdir -p "$SB/nocases" && cp "$C/skeleton/hooks/bash-guard.sh" "$SB/nocases/"
+run bash "$SB/nocases/bash-guard.sh" --self-test
+{ [ "$RC" = 3 ]; }; check H2 "bash-guard --self-test without its cases file: exit 3, tested nothing (rc=$RC)" $?
+printf 'x\n### allow — wrong\ngit add -A\n' > "$SB/nocases/bash-guard.cases"
+run bash "$SB/nocases/bash-guard.sh" --self-test
+{ [ "$RC" = 1 ] && has 'FAIL'; }; check H3 "bash-guard --self-test with a mismatching case: exit 1 (rc=$RC)" $?
+# the wrapper exactly as skeleton/settings.example.json ships it
+WRAP="$(jq -r '.hooks.PreToolUse[0].hooks[0].command' "$C/skeleton/settings.example.json")"
+mkdir -p "$SB/wrapproj/.claude/hooks"
+cp "$C/skeleton/hooks/bash-guard.sh" "$C/skeleton/hooks/bash-guard.cases" "$SB/wrapproj/.claude/hooks/"
+printf '{"tool_input":{"command":"git add -A"}}' > "$SB/h-block.json"; printf '{"tool_input":{"command":"git status"}}' > "$SB/h-ok.json"
+run env CLAUDE_PROJECT_DIR="$SB/wrapproj" bash -c "$WRAP" < "$SB/h-block.json"
+{ [ "$RC" = 2 ] && has 'BLOCKED \[R2\]'; }; check H4 "the settings wrapper runs the guard: git add -A is refused, exit 2 (rc=$RC)" $?
+run env CLAUDE_PROJECT_DIR="$SB/wrapproj" bash -c "$WRAP" < "$SB/h-ok.json"
+{ [ "$RC" = 0 ] && [ ! -s "$OUT" ]; }; check H5 "the settings wrapper lets git status through silently (rc=$RC)" $?
+printf 'if then fi fi (\n' > "$SB/wrapproj/.claude/hooks/bash-guard.sh"
+run env CLAUDE_PROJECT_DIR="$SB/wrapproj" bash -c "$WRAP" < "$SB/h-block.json"
+{ [ "$RC" = 1 ] && has 'bash-guard INACTIVE'; }; check H6 "an unparsable guard script FAILS OPEN and says so: exit 1 (not 2), 'bash-guard INACTIVE' (rc=$RC)" $?
+rm -f "$SB/wrapproj/.claude/hooks/bash-guard.sh"
+run env CLAUDE_PROJECT_DIR="$SB/wrapproj" bash -c "$WRAP" < "$SB/h-block.json"
+{ [ "$RC" = 1 ] && has 'bash-guard INACTIVE'; }; check H7 "a missing guard script fails open visibly too: exit 1 (rc=$RC)" $?
+cp "$C/skeleton/hooks/bash-guard.sh" "$SB/wrapproj/.claude/hooks/"
+printf '{"tool_input":{"command":"git commit -n -m x"}}' > "$SB/h-n.json"
+run env CLAUDE_PROJECT_DIR="$SB/wrapproj" bash -c "$WRAP" < "$SB/h-n.json"
+{ [ "$RC" = 2 ] && has 'R1'; }; check H8 "git commit -n is refused (R1); git push -n (dry run) is not (rc=$RC)" $?
+printf '{"tool_input":{"command":"git push -n origin main"}}' > "$SB/h-pn.json"
+run env CLAUDE_PROJECT_DIR="$SB/wrapproj" bash -c "$WRAP" < "$SB/h-pn.json"
+{ [ "$RC" = 0 ] && [ ! -s "$OUT" ]; }; check H9 "git push -n origin main is a dry run: allowed (rc=$RC)" $?
+printf 'not json' > "$SB/h-bad.json"
+run env CLAUDE_PROJECT_DIR="$SB/wrapproj" bash -c "$WRAP" < "$SB/h-bad.json"
+{ [ "$RC" = 1 ] && has 'bash-guard INACTIVE'; }; check H10 "unparseable hook JSON fails open visibly: exit 1 (rc=$RC)" $?
+cd "$C" || exit 64
 
 ###############################################################################
 ###############################################################################

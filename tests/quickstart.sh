@@ -118,6 +118,9 @@ check "pass 2: the pre-flight exit after publishing, as the README states" "$EXP
 check "pass 2: the working tree is clean after the publish block" "" "$(git -C "$R" status --porcelain)"
 check "pass 2: the remote holds exactly HEAD" "$(git -C "$R" rev-parse HEAD)" "$(git --git-dir="$SB/p2.remote.git" rev-parse refs/heads/main)"
 sed "s/$(printf '\033')\[[0-9;]*m//g" "$SB/p2.tmp/pf.log" | grep -q 'CLEAR'; check "pass 2: the final pre-flight log says CLEAR" 0 "$?"
+sed "s/$(printf '\033')\[[0-9;]*m//g" "$SB/p2.tmp/pf.log" > "$SB/p2.pf.txt"
+grep -q 'ok   guards.*bash-guard.sh: tracked, wired in .claude/settings.json, self-test green' "$SB/p2.pf.txt"; check "pass 2: the pre-flight's guards row is ok (the installed bash-guard is tracked, wired, self-test green)" 0 "$?"
+! grep -qE 'git add (-A|--all|\.)( |$)' "$SB/publish.sh"; check "pass 2: the publish block names its paths (no blanket add)" 0 "$?"
 
 echo "== the README's own words about the outcome are true =="
 grep -q 'single-clone mode' "$README"; check "README names single-clone mode" 0 "$?"
