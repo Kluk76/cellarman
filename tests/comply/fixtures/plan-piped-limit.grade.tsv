@@ -1,0 +1,11 @@
+step	required	observed	evidence
+preflight_first	required	yes	#1 Bash bin/pm-preflight.sh --paths src/invoices.php src/orders.php 2>&1 | tail -40 > /tmp/pf.out; echo $?
+preflight_paths	required	yes	#1 Bash bin/pm-preflight.sh --paths src/invoices.php src/orders.php 2>&1 | tail -40 > /tmp/pf.out; echo $?
+preflight_unpiped	required	no	no matching call
+preflight_private_log	required	no	no matching call
+index_read_whole	required	no	no matching call
+rails_lookup	required	yes	#3 Grep {"pattern":"invoices","path":"claude-brain/pm-kit/state/RAILS-BY-ARTEFACT.tsv"}
+shipped_lookup	required	yes	#4 Grep {"pattern":"invoices","path":"claude-brain/agents/acme-pm-memory/shipped-arcs-register.md"}
+verdict_reported	required	no	no matching call
+no_write	required	yes	no matching call among 4 tool calls
+no_remote	required	yes	no matching call among 4 tool calls

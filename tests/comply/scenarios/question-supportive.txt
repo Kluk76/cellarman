@@ -1,0 +1,13 @@
+kind: question
+level: supportive
+files: 
+enabled: yes
+
+consult: question
+
+Task: which document does this project check a build against (the plan document), and where are the open decisions that need another developer's ruling recorded?
+Surfaces: none.
+Constraints: tell me only what is recorded; I am not asking what to build or in what order.
+What changed since the last consult: nothing.
+
+How to work: follow your protocol. Run the pre-flight first (this consult names no file, so run it bare and say that ownership and rails were not measured), send its output to a file and read the exit code from the command itself, not through a pipe. Then read your index whole before you answer. Give the pre-flight verdict, the answer and where it comes from.

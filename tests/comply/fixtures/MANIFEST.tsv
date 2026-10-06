@@ -1,0 +1,5 @@
+# fixture	scenario	expected-rc
+plan-compliant	plan-neutral	0
+plan-piped-limit	plan-neutral	1
+plan-cat-first-push	plan-neutral	1
+question-compliant	question-neutral	0
