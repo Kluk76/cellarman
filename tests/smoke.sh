@@ -988,10 +988,13 @@ run bash "$KITREL/doctor.sh" --strict
 { [ "$RC" = 0 ] && has 'info — hooks not wired.*load-telemetry.sh.*session-ledger.sh.*pm-sync.sh' && lacks 'WARN.*hooks' && lacks 'FAIL.*hooks'; }; check 7d "no settings.json: hooks reported 'not wired' as info, strict still passes (rc=$RC)" $?
 mkdir -p .claude; cp "$C/skeleton/settings.example.json" .claude/settings.json
 run bash "$KITREL/doctor.sh" --strict
-{ [ "$RC" = 0 ] && has 'ok   — hooks wired in settings: load-telemetry.sh session-ledger.sh pm-sync.sh pm-consult-nudge.sh'; }; check 7d "the shipped settings.example.json counts as fully wired (rc=$RC)" $?
+{ [ "$RC" = 0 ] && has 'ok   — hooks wired in settings: load-telemetry.sh session-ledger.sh pm-sync.sh pm-consult-nudge.sh bash-guard.sh load-telemetry-skill-leg'; }; check 7d "the shipped settings.example.json counts as fully wired (rc=$RC)" $?
 printf '{"hooks":{"PostToolUse":[{"matcher":"Read","hooks":[{"type":"command","command":"x/load-telemetry.sh"}]}]}}\n' > .claude/settings.json
 run bash "$KITREL/doctor.sh"
-{ has 'info — hooks not wired.*session-ledger.sh.*pm-sync.sh' && lacks 'optional):[^;]*load-telemetry' && has 'wired: load-telemetry.sh'; }; check 7d "a partial wiring names only the missing hooks" $?
+{ has 'info — hooks not wired.*session-ledger.sh.*pm-sync.sh' && lacks 'optional):[^;]*load-telemetry\.sh' && has 'optional):.*load-telemetry-skill-leg' && has 'wired: load-telemetry.sh'; }; check 7d "a partial wiring names only the missing hooks; a Read-only matcher leaves the Skill leg unwired" $?
+printf '{"hooks":{"PostToolUse":[{"matcher":"Read|Skill","hooks":[{"type":"command","command":"x/load-telemetry.sh"}]}]}}\n' > .claude/settings.json
+run bash "$KITREL/doctor.sh"
+{ lacks 'load-telemetry-skill-leg.*—' && has 'wired:.*load-telemetry-skill-leg'; }; check 7d "a Read|Skill matcher counts the Skill leg as wired" $?
 # (e) rails outside list items
 mk_proj pd7e remote
 printf '\n🔴 never edit `app/db.php` by hand\n\n> ⛔ `ref_users` is read by two views\n\n- ⛔ `app/ok.php` is sealed\n  🔴 continuation about `app/ok2.php` stays a rail\n' >> "$INDEX"
@@ -1235,6 +1238,32 @@ fi
 mk_proj pg0 remote
 run bash bin/pm-preflight.sh --no-fetch; strip
 { lacks 'guards' "$OUTT"; }; check G8 "PF_AGENT_GUARDS empty: the check reports nothing (rc=$RC)" $?
+
+###############################################################################
+# T — load-telemetry.sh Skill leg
+###############################################################################
+mk_proj pt remote
+SKL=claude-brain/agents/.pm-skill-log.tsv
+skill_hook() { printf '%s' "$1" > "$SB/skill.json"; run bash "$KITREL/load-telemetry.sh" < "$SB/skill.json"; }
+skill_hook '{"tool_name":"Skill","session_id":"abcdef123456","tool_input":{"skill":"my-skill"}}'
+{ [ "$RC" = 0 ] && [ "$(cat "$SKL")" = "$(date +%F)${TAB}abcdef12${TAB}my-skill" ]; }; check T1 "a Skill call is logged as date, session8, skill (rc=$RC)" $?
+: > "$SKL"
+skill_hook '{"tool_name":"Skill","tool_input":{"skill":"plugin:name/x@1.0"}}'
+{ [ "$(cat "$SKL")" = "$(date +%F)${TAB}unknown${TAB}plugin:name/x@1.0" ]; }; check T2 "no session id: 'unknown'; the name charset includes : / @ . (rc=$RC)" $?
+: > "$SKL"
+skill_hook '{"tool_name":"Skill","tool_input":{"skill":"bad name; rm -rf x"}}'
+skill_hook '{"tool_name":"Skill","tool_input":{"skill":"ok\n"}}'
+skill_hook '{"tool_name":"Skill","tool_input":{"skill":""}}'
+skill_hook '{"tool_name":"Skill","tool_input":{"skill":["a"]}}'
+{ [ ! -s "$SKL" ]; }; check T3 "a name outside the charset (space, ;, trailing newline, empty, not a string) is not recorded" $?
+skill_hook '{"tool_name":"Bash","tool_input":{"command":"ls"}}'
+{ [ ! -s "$SKL" ]; }; check T4 "any other tool is not recorded in the skill log" $?
+mkdir -p "$MEMDIR"; printf '# t\n' > "$MEMDIR/journal.md"; : > claude-brain/agents/.pm-load-log.tsv
+skill_hook "{\"tool_name\":\"Read\",\"tool_input\":{\"file_path\":\"$PROJ/$MEMDIR/journal.md\"}}"
+{ grep -q "${TAB}journal.md\$" claude-brain/agents/.pm-load-log.tsv && [ ! -s "$SKL" ]; }; check T5 "tool_name Read still takes the Read leg (and writes nothing to the skill log)" $?
+printf 'PM_SKILL_LOG=""\n' >> claude-brain/pm-kit.conf
+skill_hook '{"tool_name":"Skill","tool_input":{"skill":"my-skill"}}'
+{ [ "$RC" = 0 ] && [ ! -s "$SKL" ]; }; check T6 "PM_SKILL_LOG empty: the Skill leg does nothing, exit 0" $?
 
 ###############################################################################
 # H — the skeleton bash-guard hook, and the settings wrapper that runs it

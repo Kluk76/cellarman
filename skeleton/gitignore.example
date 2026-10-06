@@ -13,6 +13,9 @@
 # read by the doctor's dormancy check). Per-developer by design.
 claude-brain/agents/.pm-load-log.tsv
 
+# Per-machine skill-load log (PM_SKILL_LOG, the Skill leg of load-telemetry.sh).
+claude-brain/agents/.pm-skill-log.tsv
+
 # Card catalog (PM_CATALOG, written by catalog.sh; embeds the load telemetry).
 # Default location when PM_CATALOG is unset: pm-catalog.tsv next to the index.
 claude-brain/agents/pm-catalog.tsv

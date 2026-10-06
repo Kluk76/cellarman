@@ -721,10 +721,18 @@ for _sf in "$REPO_ROOT/.claude/settings.json" "$REPO_ROOT/.claude/settings.local
     [ -f "$_sf" ] && _HOOK_FILES="$_HOOK_FILES $_sf"
 done
 _HOOK_NOT=""; _HOOK_YES=""
-for _h in load-telemetry.sh session-ledger.sh pm-sync.sh pm-consult-nudge.sh; do
+# bash-guard.sh is a PreToolUse hook; load-telemetry-skill-leg is not a script but the
+# Skill leg of load-telemetry.sh, which runs only when a PostToolUse matcher names Skill
+# (the script name alone is wired by a "Read"-only matcher too, and would read as complete).
+for _h in load-telemetry.sh session-ledger.sh pm-sync.sh pm-consult-nudge.sh bash-guard.sh load-telemetry-skill-leg; do
     _w=0
-    # shellcheck disable=SC2086
-    [ -n "$_HOOK_FILES" ] && grep -qF -- "$_h" $_HOOK_FILES 2>/dev/null && _w=1
+    if [ "$_h" = load-telemetry-skill-leg ]; then
+        # shellcheck disable=SC2086
+        [ -n "$_HOOK_FILES" ] && grep -qE '"matcher"[[:space:]]*:[[:space:]]*"[^"]*Skill' $_HOOK_FILES 2>/dev/null && _w=1
+    else
+        # shellcheck disable=SC2086
+        [ -n "$_HOOK_FILES" ] && grep -qF -- "$_h" $_HOOK_FILES 2>/dev/null && _w=1
+    fi
     if [ "$_w" = 1 ]; then _HOOK_YES="$_HOOK_YES $_h"; else _HOOK_NOT="$_HOOK_NOT $_h"; fi
 done
 if [ -z "$_HOOK_NOT" ]; then
