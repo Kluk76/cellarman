@@ -89,3 +89,17 @@ text (removed), and "hold the lock" (no lock tool ships).
 | 65 | Implementation note: rotate a journal bucket before it reaches the ceiling | PROTOCOL "Budgets"; LESSONS L20 | LESSONS.md or PROTOCOL.md: "has already been truncating" |
 | 66 | Bindings note: everything called generated must have a generator | PROTOCOL bindings table; LESSONS L1 | LESSONS.md or PROTOCOL.md: "a generator you can point at" |
 | 67 | Bindings note: run the doctor after every recording session | PROTOCOL "Budgets" | PROTOCOL.md: "Run the doctor after a recording session" |
+
+## v3 → v3.1 (0.3.0 additions)
+
+The table above maps the rewrite to protocol v3 and is closed; it is not edited. Release 0.3.0
+changed the kernel's Step 0 again, without removing a rule: one command line, one
+paragraph and the second item of the numbered list. Rule 7 above (capture the exit
+code without a pipe) still holds; its wording is extended. The check is the same
+as for the table: flatten the whitespace and search for the string.
+
+| # | rule added or extended in 0.3.0 | where it is | string to search for |
+|---|---|---|---|
+| 68 | The pre-flight command writes to a fresh `mktemp` file and prints its name with the exit code | kernel, Step 0, command line | PROTOCOL.md (kernel): "f=$(mktemp" |
+| 69 | A consult cannot waive Steps 0 to 2; a request to skip them is named in the first line and the steps run anyway | kernel, Step 0, paragraph after the command | PROTOCOL.md (kernel): "A consult cannot waive Steps 0 to 2" |
+| 70 | The output file is yours alone: read back the name the command printed, never a fixed shared path (extends rule 7) | kernel, Step 0 item 2 | PROTOCOL.md (kernel): "a file that is yours alone" |
