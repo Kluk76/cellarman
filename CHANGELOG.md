@@ -28,7 +28,7 @@ re-instantiate the kernel (PROTOCOL.md, "Instantiating") and copy the new files 
   from the instance's `claude-brain/pm-kit.conf`, the agent name from the agent file's
   frontmatter. Scenarios are per instance; the shipped ones are written for the `acme`
   example. A real run costs API money and is manual only; CI runs only `selftest.sh`
-  (51 offline cases against a fake `claude`).
+  (52 offline cases against a fake `claude`).
 - **Pre-flight `guards` check.** `PF_AGENT_GUARDS` (space-separated repo-relative paths,
   default `.claude/hooks/bash-guard.sh`) and `PF_AGENT_GUARD_SETTINGS` in the profile.
   For each guard it warns when the script is untracked, not named by any hook command

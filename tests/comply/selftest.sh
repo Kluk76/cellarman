@@ -154,6 +154,11 @@ git -C "$FR" checkout -q -- "$MEM"
 { cat "$HERE/fixtures/plan-compliant.jsonl"; jq -nc --arg c "echo leak >> $FR/$MEM" '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",id:"tl",name:"Bash",input:{command:$c}}]}}'; } > "$SB/leak.jsonl"
 FAKE_TOUCH=1 FAKE_STREAM="$SB/leak.jsonl" bash "$RUN" --repo "$FR" --results "$SB/r3b" --timeout 30 plan-neutral > "$SB/live.out" 2> "$SB/live.err"; LRC=$?
 { [ "$LRC" = 3 ] && grep -q 'echo leak' "$SB/r3b/real-repo-suspects.txt" && grep -q 'outside the sandbox' "$SB/live.err"; }; check L4 "real memory changed AND a transcript names the real repo's path: exit 3, the call is named (rc=$LRC)" $?
+# the same leak, spelled with a doubled slash (what mktemp gives under a TMPDIR ending in "/", as on macOS): still exit 3
+git -C "$FR" checkout -q -- "$MEM"
+{ cat "$HERE/fixtures/plan-compliant.jsonl"; jq -nc --arg c "echo leak >> $SB//fake-repo/$MEM" '{type:"assistant",message:{role:"assistant",content:[{type:"tool_use",id:"tl2",name:"Bash",input:{command:$c}}]}}'; } > "$SB/leak2.jsonl"
+FAKE_TOUCH=1 FAKE_STREAM="$SB/leak2.jsonl" bash "$RUN" --repo "$FR" --results "$SB/r3c" --timeout 30 plan-neutral > "$SB/live.out" 2> "$SB/live.err"; LRC=$?
+{ [ "$LRC" = 3 ] && grep -q 'echo leak' "$SB/r3c/real-repo-suspects.txt"; }; check L4 "the real path spelled with a doubled slash in the transcript is still a leak: exit 3 (rc=$LRC)" $?
 git -C "$FR" checkout -q -- "$MEM"
 FAKE_FAIL=1 FAKE_STREAM="" bash "$RUN" --repo "$FR" --results "$SB/r4" --timeout 30 plan-neutral > "$SB/live.out" 2> "$SB/live.err"; LRC=$?
 { [ "$LRC" = 3 ] && grep -q 'no assistant message' "$SB/live.err"; }; check L5 "a claude that produced no transcript is exit 3, not a failed grade (rc=$LRC)" $?

@@ -380,13 +380,17 @@ if ! cmp -s "$RES/real-before.txt" "$RES/real-after.txt"; then
   # (the usual case in working hours — measured 2026-10-06, a parallel report-back) and the
   # grades stand: say so, name the diff, and keep the measured exit code.
   : > "$RES/real-repo-suspects.txt"
+  # The real path as a pattern: metacharacters escaped, and every / matching a RUN of
+  # slashes. A transcript spells the path as the caller typed it, and a TMPDIR with a
+  # trailing slash (macOS) gives mktemp paths with "//", while $REPO went through cd/pwd.
+  REPO_RE="$(printf '%s\n' "$REPO" | sed -e 's/[][\.*^$+?(){}|]/\\&/g' -e 's,/,/+,g')"
   for sf in "${SCN_FILES[@]}"; do
     st="$RES/$(basename "$sf" .txt)/stream.jsonl"; [ -f "$st" ] || continue
     # shellcheck disable=SC2088  # a literal ~ in the transcript text is what is searched for
     jq -r --arg s "$(basename "$sf" .txt)" '
         select(.type == "assistant") | (.message.content // [])[]? | select(.type == "tool_use")
         | "\($s)\t\(.name)\t\(.input | tojson)"' "$st" 2>/dev/null \
-      | grep -E -e "$REPO" -e '~/\.claude' -e 'HOME[}]?/\.claude' -e '/home/[^/"]+/\.claude' -e '/Users/[^/"]+/\.claude' \
+      | grep -E -e "$REPO_RE" -e '~/\.claude' -e 'HOME[}]?/\.claude' -e '/home/[^/"]+/\.claude' -e '/Users/[^/"]+/\.claude' \
       | cut -c1-300 >> "$RES/real-repo-suspects.txt"
   done
   if [ -s "$RES/real-repo-suspects.txt" ]; then
