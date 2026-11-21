@@ -37,6 +37,16 @@
 #   pm-preflight.sh --probe-db                       # + live deploy-target/schema probes
 #   pm-preflight.sh --no-fetch                       # skip network (offline)
 #   pm-preflight.sh --json                           # machine-readable summary
+#   pm-preflight.sh --ambient-full                   # print EVERY ambient rail verbatim.
+#                                                    # Default: the rails keyed to the
+#                                                    # always-checked governance paths
+#                                                    # (PF_ALWAYS_PATHS) are folded into ONE
+#                                                    # "[ambient]" summary row per file (counts
+#                                                    # by severity + the command that shows
+#                                                    # them). Counters, verdict line and exit
+#                                                    # code are identical in both modes;
+#                                                    # --json always keeps every row; a rail
+#                                                    # keyed to a --paths path is never folded.
 #   pm-preflight.sh --paths -- --odd-name.php        # `--` ends the option list: every
 #                                                    # later word is a path, even if it
 #                                                    # starts with --
@@ -82,7 +92,7 @@ else
   echo "pm-preflight: WARNING no \$PM_REPO_ROOT and cwd is not inside a git repo — falling back to the kernel's grandparent-of-grandparent ($REPO_ROOT). This is only correct if the kernel still lives at <repo>/claude-brain/pm-kit/kernel/." >&2
 fi
 
-DO_FETCH=1; DO_PROBE=0; DO_JSON=0
+DO_FETCH=1; DO_PROBE=0; DO_JSON=0; AMB_FULL=0
 # PM_OFFLINE=1: nothing here may open a network connection or contact a remote
 # host. Every leg that would (git fetch, the deploy-target leg, the live schema
 # probe) is skipped and reported UNMEASURED with the text "offline (PM_OFFLINE=1)":
@@ -96,6 +106,7 @@ while [ $# -gt 0 ]; do
     --no-fetch)   DO_FETCH=0; shift ;;
     --probe-db)   DO_PROBE=1; shift ;;
     --json)       DO_JSON=1; shift ;;
+    --ambient-full) AMB_FULL=1; shift ;;
     --paths)      shift; while [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; do PATHS[${#PATHS[@]}]="$1"; shift; done ;;
     --)           shift; while [ $# -gt 0 ]; do PATHS[${#PATHS[@]}]="$1"; shift; done ;;
     --migrations) shift; while [ $# -gt 0 ] && [ "${1#--}" = "$1" ]; do MIGS[${#MIGS[@]}]="$1"; shift; done ;;
@@ -289,6 +300,12 @@ JSON_ROWS=""
 # carry the literal marker "[ambient]"; --json rows carry "ambient":true.
 # Callers use the *_amb wrappers below, so the PM never has to infer it.
 _AMB=0
+# _QUIET=1: the row is recorded and counted but NOT printed (text mode only). Set by
+# _rails_scan around an ambient rail while the fold is on; see FOLD below.
+_QUIET=0
+# FOLD=1 (text mode, no --ambient-full): ambient RAIL rows are tallied and printed as one
+# summary row per governance file. --json never folds: machine consumers keep the detail.
+FOLD=0; [ "$AMB_FULL" != 1 ] && [ "$DO_JSON" != 1 ] && FOLD=1
 
 _esc() { printf '%s' "$1" | sed 's/\\/\\\\/g; s/"/\\"/g'; }
 _row() { # kind check message
@@ -296,9 +313,9 @@ _row() { # kind check message
   [ "$_AMB" = 1 ] && amb=',"ambient":true'
   JSON_ROWS="$JSON_ROWS{\"level\":\"$1\",\"check\":\"$2\",\"msg\":\"$(_esc "$3")\"$amb},"
 }
-ok()   { [ "$DO_JSON" = 1 ] || printf '  \033[32mok\033[0m   %-22s %s\n' "$1" "$2"; _row ok "$1" "$2"; }
+ok()   { [ "$DO_JSON" = 1 ] || [ "$_QUIET" = 1 ] || printf '  \033[32mok\033[0m   %-22s %s\n' "$1" "$2"; _row ok "$1" "$2"; }
 warn() { WARN_N=$((WARN_N+1)); [ "$RC" -lt 1 ] && RC=1
-         [ "$DO_JSON" = 1 ] || printf '  \033[33mWARN\033[0m %-22s %s\n' "$1" "$2"; _row warn "$1" "$2"; }
+         [ "$DO_JSON" = 1 ] || [ "$_QUIET" = 1 ] || printf '  \033[33mWARN\033[0m %-22s %s\n' "$1" "$2"; _row warn "$1" "$2"; }
 stop() { STOP_N=$((STOP_N+1)); RC=2
          [ "$DO_JSON" = 1 ] || printf '  \033[31mSTOP\033[0m %-22s %s\n' "$1" "$2"; _row stop "$1" "$2"; }
 # info: a line that is neither a pass nor a problem — used to say a phase did NOT
@@ -952,7 +969,7 @@ else
   _load_touch
   # Candidates (the path and its basename) for the build's own paths and, apart,
   # for the ambient ones — a candidate named by both counts as the build's.
-  : > "$TMP/rails-cand-b"; : > "$TMP/rails-cand-a"
+  : > "$TMP/rails-cand-b"; : > "$TMP/rails-cand-a"; : > "$TMP/rails-amb-tally"
   for P in ${BUILD_ARR[@]+"${BUILD_ARR[@]}"}; do
     printf '%s\n' "$P" >> "$TMP/rails-cand-b"
     case "$P" in */*) basename "$P" >> "$TMP/rails-cand-b" ;; esac
@@ -975,16 +992,27 @@ else
       # containing a backslash would be rewritten and never match its own row.
       RAILS_CAND="$RCAND" awk -F'\t' '$1==ENVIRON["RAILS_CAND"]' "$RAILS_TSV" > "$TMP/rails-hit" 2>/dev/null
       [ -s "$TMP/rails-hit" ] || continue
+      # Fold key: the governance file this candidate stands for (the path itself, or
+      # the path whose basename it is).
+      AKEY="$RCAND"
+      if [ "$2" = 1 ]; then
+        for _ak in ${AMBIENT_ARR[@]+"${AMBIENT_ARR[@]}"}; do
+          if [ "$RCAND" = "$_ak" ] || [ "$RCAND" = "$(basename "$_ak")" ]; then AKEY="$_ak"; break; fi
+        done
+      fi
       while IFS="$(printf '\t')" read -r ART SEV RAIL SRC ORIG; do
         [ -z "$ART" ] && continue
         RAIL_HITS=$((RAIL_HITS + 1))
         MSG="$ART [$ORIG] ($SRC): $RAIL"
         # An ambient STOP is a WARN, and every ambient row carries the marker.
         if [ "$2" = 1 ]; then
+          [ "$FOLD" = 1 ] && _QUIET=1
           case "$SEV" in
-            STOP|WARN) warn_amb rails "$MSG" ;;
-            *)         ok_amb rails "[$SEV] $MSG" ;;
+            STOP) warn_amb rails "$MSG"; printf '%s\tS\n' "$AKEY" >> "$TMP/rails-amb-tally" ;;
+            WARN) warn_amb rails "$MSG"; printf '%s\tW\n' "$AKEY" >> "$TMP/rails-amb-tally" ;;
+            *)    ok_amb rails "[$SEV] $MSG"; printf '%s\tI\n' "$AKEY" >> "$TMP/rails-amb-tally" ;;
           esac
+          _QUIET=0
         else
           case "$SEV" in
             STOP) stop rails "$MSG" ;;
@@ -1004,6 +1032,20 @@ else
     [ "$RAIL_HITS" -eq 0 ] && ok rails "no rail keyed to any of the $CAND_N touched artefact(s)"
   fi
   [ -s "$TMP/rails-cand-amb" ] && _rails_scan "$TMP/rails-cand-amb" 1
+  # Fold: one summary row per governance file (first-seen order). The rows were recorded
+  # and counted above (WARN_N / AMB_N untouched); only their printing was held back.
+  if [ "$FOLD" = 1 ] && [ -s "$TMP/rails-amb-tally" ]; then
+    _selfcmd="${KIT_DIR#"$REPO_ROOT"/}/$(basename "$0")"
+    awk -F'\t' '
+      !($1 in n) { n[$1] = 0; ord[++k] = $1 }
+      { n[$1]++; c[$1 SUBSEP $2]++ }
+      END { for (i = 1; i <= k; i++) { f = ord[i]
+        printf "%s\t%d\t%d\t%d\t%d\n", f, n[f], c[f SUBSEP "S"] + 0, c[f SUBSEP "W"] + 0, c[f SUBSEP "I"] + 0 } }' \
+      "$TMP/rails-amb-tally" > "$TMP/rails-amb-sum"
+    while IFS="$(printf '\t')" read -r _sf _sn _ss _sw _si; do
+      info rails "[ambient] $_sf: $_sn rail(s) folded - $_ss STOP-demoted-to-WARN, $_sw WARN, $_si INFO ($((_ss + _sw)) counted as ambient warnings in the verdict) - in full: $_selfcmd --ambient-full | grep -F '$(basename "$_sf")'"
+    done < "$TMP/rails-amb-sum"
+  fi
 fi
 
 # ── verdict ────────────────────────────────────────────────────────────────────

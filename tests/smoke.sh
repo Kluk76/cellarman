@@ -661,16 +661,61 @@ printf -- '- ⛔ never edit `claude-brain/FROZEN.md` by hand\n' >> "$INDEX"
 run bash "$KITREL/kernel/rails-index.sh"
 commit_all "ambient fixture"
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths src/billing.php; strip
-{ lacks 'STOP' "$OUTT" && has 'WARN ownership.*\[ambient\]' "$OUTT" && has 'WARN rails.*\[ambient\]' "$OUTT"; }; check amb-b "frozen + STOP-rail always-checked path, clean build: WARN labelled ambient, no STOP (rc=$RC)" $?
+{ lacks '^  STOP ' "$OUTT" && lacks '● STOP' "$OUTT" && has 'WARN ownership.*\[ambient\]' "$OUTT" && has 'info rails .*\[ambient\] claude-brain/FROZEN.md: 1 rail(s) folded - 1 STOP-demoted-to-WARN' "$OUTT"; }; check amb-b "frozen + STOP-rail always-checked path, clean build: WARN labelled ambient (the rail folded into its count row), no STOP (rc=$RC)" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --ambient-full --paths src/billing.php; strip
+{ lacks '^  STOP ' "$OUTT" && lacks '● STOP' "$OUTT" && has 'WARN rails.*\[ambient\]' "$OUTT" && lacks 'folded' "$OUTT"; }; check amb-b "--ambient-full: the same rail is a WARN row labelled ambient, never a STOP (rc=$RC)" $?
 { [ "$RC" = 1 ]; }; check amb-b "the run exits 1, not 2 (rc=$RC)" $?
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
-{ lacks 'STOP' "$OUTT" && has 'WARN ownership.*\[ambient\]' "$OUTT"; }; check amb-b "no --paths, clean tree: still ambient WARN, never STOP (rc=$RC)" $?
+{ lacks '^  STOP ' "$OUTT" && lacks '● STOP' "$OUTT" && has 'WARN ownership.*\[ambient\]' "$OUTT"; }; check amb-b "no --paths, clean tree: still ambient WARN, never STOP (rc=$RC)" $?
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths claude-brain/FROZEN.md; strip
 { [ "$RC" = 2 ] && has 'STOP ownership' "$OUTT" && has 'STOP rails' "$OUTT" && lacks '\[ambient\]' "$OUTT"; }; check amb-b "the caller passing the same path itself: real STOPs (rc=$RC)" $?
 echo edit >> claude-brain/FROZEN.md
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 { [ "$RC" = 2 ] && has 'STOP ownership' "$OUTT" && has 'STOP rails' "$OUTT"; }; check amb-b "the same path DIRTY in the worktree is the build's own: real STOPs (rc=$RC)" $?
 git checkout -q -- claude-brain/FROZEN.md
+
+###############################################################################
+# fold — ambient RAILS are one summary row per governance file by default;
+# --ambient-full restores every row; counters, verdict and exit code do not move
+###############################################################################
+mk_proj pfold remote
+prof_set PF_ALWAYS_PATHS '"claude-brain/GOV-ONE.md claude-brain/GOV-TWO.md"'
+printf 'own a logic src/*\nown a ops claude-brain/*\n' > claude-brain/OWNERSHIP.map; mkdir -p src
+printf '# state\topened\tdev\tslug\tglobs\tnote\tsession\n' > claude-brain/CLAIMS.tsv
+printf '# one\n' > claude-brain/GOV-ONE.md; printf '# two\n' > claude-brain/GOV-TWO.md
+cat >> "$INDEX" <<'EOF'
+- ⛔ AMBRAIL-O-stop-1 on `claude-brain/GOV-ONE.md`
+- ⛔ AMBRAIL-O-stop-2 on `claude-brain/GOV-ONE.md`
+- 🔴 AMBRAIL-O-warn-1 on `claude-brain/GOV-ONE.md`
+- AMBRAIL-O-info-1 on `claude-brain/GOV-ONE.md`
+- AMBRAIL-O-info-2 on `claude-brain/GOV-ONE.md`
+- AMBRAIL-O-info-3 on `claude-brain/GOV-ONE.md`
+- ⛔ AMBRAIL-T-stop-1 on `claude-brain/GOV-TWO.md`
+- 🔴 AMBRAIL-T-warn-1 on `claude-brain/GOV-TWO.md`
+- 🔴 AMBRAIL-T-warn-2 on `claude-brain/GOV-TWO.md`
+- AMBRAIL-T-info-1 on `claude-brain/GOV-TWO.md`
+- AMBRAIL-T-info-2 on `claude-brain/GOV-TWO.md`
+- AMBRAIL-T-info-3 on `claude-brain/GOV-TWO.md`
+- 🔴 BUILDRAIL-warn on `src/x.php`
+EOF
+run bash "$KITREL/kernel/rails-index.sh"
+commit_all "ambient rails"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths src/x.php; strip; RC_F=$RC; OUT_F="$OUTT"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --ambient-full --paths src/x.php; strip; RC_A=$RC; OUT_A="$OUTT"
+{ [ "$(grep -c 'rails .*\[ambient\] claude-brain/GOV-ONE.md:' "$OUT_F")" = 1 ] && [ "$(grep -c 'rails .*\[ambient\] claude-brain/GOV-TWO.md:' "$OUT_F")" = 1 ] && [ "$(grep -c 'rails .*\[ambient\] .*folded' "$OUT_F")" = 2 ]; }; check fold "default: exactly one [ambient] summary row per governance file (two files, two rows)" $?
+{ lacks 'AMBRAIL' "$OUT_F"; }; check fold "default: no ambient rail text in clear" $?
+{ has 'GOV-ONE.md: 6 rail(s) folded - 2 STOP-demoted-to-WARN, 1 WARN, 3 INFO (3 counted' "$OUT_F" && has 'GOV-TWO.md: 6 rail(s) folded - 1 STOP-demoted-to-WARN, 2 WARN, 3 INFO (3 counted' "$OUT_F"; }; check fold "default: the counts per severity are right on both files" $?
+{ has "folded.*--ambient-full | grep -F 'GOV-ONE.md'" "$OUT_F"; }; check fold "default: the summary names the command that shows the rails in full" $?
+n=0; for t in O-stop-1 O-stop-2 O-warn-1 O-info-1 O-info-2 O-info-3 T-stop-1 T-warn-1 T-warn-2 T-info-1 T-info-2 T-info-3; do grep -q "AMBRAIL-$t" "$OUT_A" && n=$((n+1)); done
+{ [ "$n" = 12 ] && lacks 'folded' "$OUT_A"; }; check fold "--ambient-full: all 12 ambient rail texts are present, nothing folded ($n/12)" $?
+{ [ "$RC_F" = "$RC_A" ] && [ "$(tail -n 1 "$OUT_F")" = "$(tail -n 1 "$OUT_A")" ] && grep -q 'warning(s) of which [1-9][0-9]* ambient' "$OUT_F"; }; check fold "verdict line (incl. the ambient count) and exit code identical in both modes (rc=$RC_F/$RC_A)" $?
+{ has 'WARN rails .*BUILDRAIL-warn' "$OUT_F" && has 'WARN rails .*BUILDRAIL-warn' "$OUT_A"; }; check fold "a rail keyed to a --paths path is in clear in both modes" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths claude-brain/GOV-ONE.md; strip
+{ has 'rails .*AMBRAIL-O-warn-1' "$OUTT" && lacks 'GOV-ONE.md: [0-9]* rail(s) folded' "$OUTT"; }; check fold "a governance file named in --paths is the build's own: its rails are in clear, not folded" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --json --paths src/x.php
+{ [ "$(grep -o 'AMBRAIL-[A-Za-z0-9-]*' "$OUT" | sort -u | wc -l | tr -d ' ')" = 12 ] && has '"ambient":true'; }; check fold "--json keeps every ambient rail row (never folded)" $?
+run env ACME_DEV=a LC_ALL=C bash bin/pm-preflight.sh --no-fetch --paths src/x.php; strip
+{ [ "$(grep -c 'folded' "$OUTT")" = 2 ]; }; check fold "the fold is the same under LC_ALL=C" $?
 
 ###############################################################################
 # A2 — exit 3 means "did not run"; 0/1/2 stay verdicts
