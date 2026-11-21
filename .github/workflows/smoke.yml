@@ -113,7 +113,11 @@ jobs:
       - name: shellcheck
         run: |
           shellcheck --version
-          shellcheck -x \
+          # Two checks added by shellcheck 0.10/0.11 are excluded on purpose:
+          #   SC2319 flags `[ cond ]; ok "label" "$?"`, the idiom every suite uses to
+          #          record the status of a test condition, which is exactly what is meant;
+          #   SC2329 flags functions that are only invoked through `trap`.
+          shellcheck -x -e SC2319,SC2329 \
             pm-kit/*.sh pm-kit/kernel/*.sh pm-kit/profiles/extractors/*.sh \
             skeleton/*.sh skeleton/hooks/*.sh skeleton/githooks-pre-commit.example \
             tests/*.sh tests/comply/*.sh
