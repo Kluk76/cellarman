@@ -289,3 +289,32 @@ cut the index by more than half with nothing lost.
 Projects that keep a journal directory should rotate to a new file before the
 current one reaches the size the read tool returns whole. A file that has
 reached the limit has already been truncating for days.
+
+## L21. The pre-flight output is a fixed cost of every consult
+
+Every consult reads the whole pre-flight output before it reasons, so its size
+is paid each time, whatever the build. On the origin project a run with no
+paths printed 127 KB, and 94 % of it was rails keyed to the always-checked
+governance files, printed in full on every run. Folded into one row per file
+(the count per severity and the command that shows them) the same run printed
+about 9 KB, with the same verdict and the same exit code, because the counters
+are taken before anything is printed.
+
+Fold what does not depend on the build, and keep the count. The detail stays
+one flag away (`--ambient-full`) and is never dropped from `--json`; a rail on
+a path the caller named stays verbatim, because that is the build's own.
+
+## L22. A skill body is injected whole on every load
+
+The same cost appears one level up. A skill's body is loaded entirely each
+time the skill is, so every line in it is paid for per load. On the origin
+project three skill bodies had grown to 130 to 200 KB, because each rule's
+one-line "tell" pointing at a reference file had itself swollen, over time, to
+about 1 KB of story. Moving those entries verbatim into per-domain reference
+files of about 25 KB, and leaving a one-line symptom index in the body, brought
+the bodies to 26 to 30 KB with no rule dropped (a line-level conservation test
+checked that every moved line exists in exactly one place).
+
+An index line names the symptom; the reference holds the story. A pure
+prohibition with no warning symptom to recognise stays in the body, because
+nothing would send the reader to the reference for it.

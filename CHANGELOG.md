@@ -4,6 +4,56 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/) from 0.2.0 on.
 
+## [0.4.0] - 2026-11-21
+
+A folded pre-flight, and a dependency graph with example extractors. Nothing in the
+kernel prompt (`PROTOCOL.md`) changed, so its sha256 and the agent files' kernel block
+are untouched. To adopt: copy `pm-kit/` over the installed one (`init.sh` does not
+overwrite) and add the new section 12 of `profiles/example.conf` to your profile if you
+want the graph; without it nothing changes except the folded output.
+
+### Added
+
+- **Pre-flight: ambient rails are folded (`--ambient-full` to unfold).** The rails keyed
+  to the always-checked paths (`PF_ALWAYS_PATHS`) are printed as one `[ambient]`
+  summary row per file (count per severity, plus the command that shows them in full)
+  instead of one row each. Counters, the verdict line and the exit code are identical
+  in both modes; a rail keyed to a `--paths` path stays verbatim; `--json` keeps
+  every row. On the origin project: 127 KB to about 9 KB for the same run.
+- **`pm-kit/kernel/graph.sh`, a deterministic dependency graph.** Edge file
+  `state/artefact-edges.tsv` (`from`, `to`, `kind`, `provenance`, `source#line`;
+  `EXTRACTED` / `INFERRED` / `AMBIGUOUS`, an unresolved edge is written `AMBIGUOUS`
+  and never dropped). `build` runs the extractors the profile declares;
+  `affected`, `summary`, `rank` and `path` query it. Exit 0 certain, 3 ambiguous, 4
+  nothing, 2 not measured, 5 not a node, 64 usage. A query on an absent or stale edge
+  file rebuilds it once (`--no-rebuild` refuses, `--allow-stale` answers from the old
+  file); `--kind` takes a comma list. Idea credited to graphify, see the README.
+- **Example extractors**, `pm-kit/profiles/extractors/php-include-edges.sh` and
+  `sql-table-edges.sh`. Examples, not kernel: scanned files come from `PF_EDGE_INPUTS`
+  and `--files-re`, the SQL one reads a plain text list of table and view names
+  (`--tables`, required) and an optional `table<TAB>writer` file (`--writers`), and fails
+  loudly when the list is missing or empty.
+- **Pre-flight graph rows.** With `--paths`, one `ok` row per path that is a node of the
+  edge file (the `graph.sh summary` line), capped by `PF_GRAPH_ROWS_MAX` (default 12).
+  It never builds the graph and never warns; one `info` row when the edge file is absent
+  or no extractor is declared; nothing without `--paths`.
+- **Profile variables** `PF_EDGE_INPUTS`, `PF_EDGE_OUTPUT`, `PF_EDGE_EXTRACTORS`,
+  `PF_EDGE_CMD_<name>`, `PF_GRAPH_ROWS_MAX` (new section 12 of `profiles/example.conf`;
+  the agent-read block is now section 13). `init.sh` installs the profile with
+  `PF_EDGE_INPUTS` and `PF_EDGE_EXTRACTORS` empty.
+- `tests/graph-smoke.sh` (graph and extractors on fixture repositories, with
+  `GSMOKE_MUTATE` switches), new `fold` and `graph-row` cases in `tests/smoke.sh`, and
+  two cases in `tests/init.sh`; the workflow runs the graph suite on ubuntu, macOS and
+  under mawk with `LC_ALL=C`.
+- `pm-kit/LESSONS.md`: L21 (the pre-flight output is a fixed cost of every consult) and
+  L22 (a skill body is injected whole on every load).
+
+### Changed
+
+- `tests/smoke.sh`: the ambient-warning cases assert on the row level (`^  STOP `)
+  instead of the word STOP anywhere, since the fold row says "STOP-demoted-to-WARN".
+  `tests/conf-surface.sh` counts `graph.sh` among the profile readers.
+
 ## [0.3.0] - 2026-10-06
 
 Kernel Step 0 hardened, a compliance harness for the PM model, and a guard for the

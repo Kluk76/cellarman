@@ -56,6 +56,9 @@ jobs:
       - name: Quickstart (the README commands, run literally)
         if: always()
         run: bash tests/quickstart.sh
+      - name: Graph suite (graph.sh and the example extractors)
+        if: always()
+        run: bash tests/graph-smoke.sh
       - name: Comply harness selftest (offline; a fake claude, no API call)
         if: always()
         run: bash tests/comply/selftest.sh
@@ -91,6 +94,11 @@ jobs:
         env:
           LC_ALL: C
         run: bash tests/quickstart.sh
+      - name: Graph suite under mawk and the C locale
+        if: always()
+        env:
+          LC_ALL: C
+        run: bash tests/graph-smoke.sh
       - name: Comply harness selftest under mawk and the C locale
         if: always()
         env:
@@ -105,7 +113,11 @@ jobs:
       - name: shellcheck
         run: |
           shellcheck --version
-          shellcheck -x \
-            pm-kit/*.sh pm-kit/kernel/*.sh \
+          # Two checks added by shellcheck 0.10/0.11 are excluded on purpose:
+          #   SC2319 flags `[ cond ]; ok "label" "$?"`, the idiom every suite uses to
+          #          record the status of a test condition, which is exactly what is meant;
+          #   SC2329 flags functions that are only invoked through `trap`.
+          shellcheck -x -e SC2319,SC2329 \
+            pm-kit/*.sh pm-kit/kernel/*.sh pm-kit/profiles/extractors/*.sh \
             skeleton/*.sh skeleton/hooks/*.sh skeleton/githooks-pre-commit.example \
             tests/*.sh tests/comply/*.sh

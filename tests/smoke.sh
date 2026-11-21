@@ -661,16 +661,113 @@ printf -- '- ⛔ never edit `claude-brain/FROZEN.md` by hand\n' >> "$INDEX"
 run bash "$KITREL/kernel/rails-index.sh"
 commit_all "ambient fixture"
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths src/billing.php; strip
-{ lacks 'STOP' "$OUTT" && has 'WARN ownership.*\[ambient\]' "$OUTT" && has 'WARN rails.*\[ambient\]' "$OUTT"; }; check amb-b "frozen + STOP-rail always-checked path, clean build: WARN labelled ambient, no STOP (rc=$RC)" $?
+{ lacks '^  STOP ' "$OUTT" && lacks '● STOP' "$OUTT" && has 'WARN ownership.*\[ambient\]' "$OUTT" && has 'info rails .*\[ambient\] claude-brain/FROZEN.md: 1 rail(s) folded - 1 STOP-demoted-to-WARN' "$OUTT"; }; check amb-b "frozen + STOP-rail always-checked path, clean build: WARN labelled ambient (the rail folded into its count row), no STOP (rc=$RC)" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --ambient-full --paths src/billing.php; strip
+{ lacks '^  STOP ' "$OUTT" && lacks '● STOP' "$OUTT" && has 'WARN rails.*\[ambient\]' "$OUTT" && lacks 'folded' "$OUTT"; }; check amb-b "--ambient-full: the same rail is a WARN row labelled ambient, never a STOP (rc=$RC)" $?
 { [ "$RC" = 1 ]; }; check amb-b "the run exits 1, not 2 (rc=$RC)" $?
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
-{ lacks 'STOP' "$OUTT" && has 'WARN ownership.*\[ambient\]' "$OUTT"; }; check amb-b "no --paths, clean tree: still ambient WARN, never STOP (rc=$RC)" $?
+{ lacks '^  STOP ' "$OUTT" && lacks '● STOP' "$OUTT" && has 'WARN ownership.*\[ambient\]' "$OUTT"; }; check amb-b "no --paths, clean tree: still ambient WARN, never STOP (rc=$RC)" $?
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths claude-brain/FROZEN.md; strip
 { [ "$RC" = 2 ] && has 'STOP ownership' "$OUTT" && has 'STOP rails' "$OUTT" && lacks '\[ambient\]' "$OUTT"; }; check amb-b "the caller passing the same path itself: real STOPs (rc=$RC)" $?
 echo edit >> claude-brain/FROZEN.md
 run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
 { [ "$RC" = 2 ] && has 'STOP ownership' "$OUTT" && has 'STOP rails' "$OUTT"; }; check amb-b "the same path DIRTY in the worktree is the build's own: real STOPs (rc=$RC)" $?
 git checkout -q -- claude-brain/FROZEN.md
+
+###############################################################################
+# fold — ambient RAILS are one summary row per governance file by default;
+# --ambient-full restores every row; counters, verdict and exit code do not move
+###############################################################################
+mk_proj pfold remote
+prof_set PF_ALWAYS_PATHS '"claude-brain/GOV-ONE.md claude-brain/GOV-TWO.md"'
+printf 'own a logic src/*\nown a ops claude-brain/*\n' > claude-brain/OWNERSHIP.map; mkdir -p src
+printf '# state\topened\tdev\tslug\tglobs\tnote\tsession\n' > claude-brain/CLAIMS.tsv
+printf '# one\n' > claude-brain/GOV-ONE.md; printf '# two\n' > claude-brain/GOV-TWO.md
+cat >> "$INDEX" <<'EOF'
+- ⛔ AMBRAIL-O-stop-1 on `claude-brain/GOV-ONE.md`
+- ⛔ AMBRAIL-O-stop-2 on `claude-brain/GOV-ONE.md`
+- 🔴 AMBRAIL-O-warn-1 on `claude-brain/GOV-ONE.md`
+- AMBRAIL-O-info-1 on `claude-brain/GOV-ONE.md`
+- AMBRAIL-O-info-2 on `claude-brain/GOV-ONE.md`
+- AMBRAIL-O-info-3 on `claude-brain/GOV-ONE.md`
+- ⛔ AMBRAIL-T-stop-1 on `claude-brain/GOV-TWO.md`
+- 🔴 AMBRAIL-T-warn-1 on `claude-brain/GOV-TWO.md`
+- 🔴 AMBRAIL-T-warn-2 on `claude-brain/GOV-TWO.md`
+- AMBRAIL-T-info-1 on `claude-brain/GOV-TWO.md`
+- AMBRAIL-T-info-2 on `claude-brain/GOV-TWO.md`
+- AMBRAIL-T-info-3 on `claude-brain/GOV-TWO.md`
+- 🔴 BUILDRAIL-warn on `src/x.php`
+EOF
+run bash "$KITREL/kernel/rails-index.sh"
+commit_all "ambient rails"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths src/x.php; strip; RC_F=$RC; OUT_F="$OUTT"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --ambient-full --paths src/x.php; strip; RC_A=$RC; OUT_A="$OUTT"
+{ [ "$(grep -c 'rails .*\[ambient\] claude-brain/GOV-ONE.md:' "$OUT_F")" = 1 ] && [ "$(grep -c 'rails .*\[ambient\] claude-brain/GOV-TWO.md:' "$OUT_F")" = 1 ] && [ "$(grep -c 'rails .*\[ambient\] .*folded' "$OUT_F")" = 2 ]; }; check fold "default: exactly one [ambient] summary row per governance file (two files, two rows)" $?
+{ lacks 'AMBRAIL' "$OUT_F"; }; check fold "default: no ambient rail text in clear" $?
+{ has 'GOV-ONE.md: 6 rail(s) folded - 2 STOP-demoted-to-WARN, 1 WARN, 3 INFO (3 counted' "$OUT_F" && has 'GOV-TWO.md: 6 rail(s) folded - 1 STOP-demoted-to-WARN, 2 WARN, 3 INFO (3 counted' "$OUT_F"; }; check fold "default: the counts per severity are right on both files" $?
+{ has "folded.*--ambient-full | grep -F 'GOV-ONE.md'" "$OUT_F"; }; check fold "default: the summary names the command that shows the rails in full" $?
+n=0; for t in O-stop-1 O-stop-2 O-warn-1 O-info-1 O-info-2 O-info-3 T-stop-1 T-warn-1 T-warn-2 T-info-1 T-info-2 T-info-3; do grep -q "AMBRAIL-$t" "$OUT_A" && n=$((n+1)); done
+{ [ "$n" = 12 ] && lacks 'folded' "$OUT_A"; }; check fold "--ambient-full: all 12 ambient rail texts are present, nothing folded ($n/12)" $?
+{ [ "$RC_F" = "$RC_A" ] && [ "$(tail -n 1 "$OUT_F")" = "$(tail -n 1 "$OUT_A")" ] && grep -q 'warning(s) of which [1-9][0-9]* ambient' "$OUT_F"; }; check fold "verdict line (incl. the ambient count) and exit code identical in both modes (rc=$RC_F/$RC_A)" $?
+{ has 'WARN rails .*BUILDRAIL-warn' "$OUT_F" && has 'WARN rails .*BUILDRAIL-warn' "$OUT_A"; }; check fold "a rail keyed to a --paths path is in clear in both modes" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths claude-brain/GOV-ONE.md; strip
+{ has 'rails .*AMBRAIL-O-warn-1' "$OUTT" && lacks 'GOV-ONE.md: [0-9]* rail(s) folded' "$OUTT"; }; check fold "a governance file named in --paths is the build's own: its rails are in clear, not folded" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --json --paths src/x.php
+{ [ "$(grep -o 'AMBRAIL-[A-Za-z0-9-]*' "$OUT" | sort -u | wc -l | tr -d ' ')" = 12 ] && has '"ambient":true'; }; check fold "--json keeps every ambient rail row (never folded)" $?
+run env ACME_DEV=a LC_ALL=C bash bin/pm-preflight.sh --no-fetch --paths src/x.php; strip
+{ [ "$(grep -c 'folded' "$OUTT")" = 2 ]; }; check fold "the fold is the same under LC_ALL=C" $?
+
+###############################################################################
+# graph row — pre-flight P9: one ok row per --paths path that is a graph node
+###############################################################################
+mk_proj pgr remote
+mkdir -p lib pages
+printf '<?php\nfunction b() {}\n' > lib/b.php
+printf '<?php\nrequire_once __DIR__ . "/../lib/b.php";\n' > pages/a.php
+printf '<?php\nrequire __DIR__ . "/gone/b.php";\n' > pages/amb.php
+printf '<?php\nfunction c() {}\n' > lib/c.php
+printf '<?php\nrequire __DIR__ . "/../lib/c.php";\n' > pages/c1.php
+printf '<?php\n$x = 1;\n' > lib/alone.php
+prof_set PF_EDGE_INPUTS '"lib/*.php pages/*.php"'
+prof_set PF_EDGE_EXTRACTORS '"include"'
+prof_set PF_EDGE_CMD_include "'bash \"\$GRAPH_KIT_DIR/profiles/extractors/php-include-edges.sh\"'"
+commit_all "graph fixture"
+run bash "$KITREL/kernel/graph.sh" build
+{ [ "$RC" = 0 ]; }; check graph-row "fixture: the graph builds (rc=$RC)" $?
+EDGEFILE="$KITREL/state/artefact-edges.tsv"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths lib/b.php; strip; RC_G=$RC; OUT_G="$OUTT"
+{ has '^  ok   graph  *lib/b.php: 1 include, 1 ambiguous$' "$OUT_G" && [ "$(grep -cE '^  [A-Za-z]+ +graph +' "$OUT_G")" = 1 ]; }; check graph-row "--paths on a graph node: one ok row, the graph.sh summary line (rc=$RC_G)" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths lib/b.php --json
+{ has '"level":"ok","check":"graph","msg":"lib/b.php: 1 include, 1 ambiguous"' "$OUT"; }; check graph-row "--json: the graph row is there, level ok" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ ! grep -qE '^  [A-Za-z]+ +graph +|P9' "$OUTT"; }; check graph-row "no --paths: nothing about the graph is printed" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths lib/alone.php; strip
+{ ! grep -qE '^  [A-Za-z]+ +graph +' "$OUTT"; }; check graph-row "a path that is not a node of the graph prints no row" $?
+# counters, verdict and exit code are those of the same run with the graph switched off
+# (the profile assigns PF_EDGE_EXTRACTORS itself, so the environment cannot blank it: compare against a profile copy)
+cp "$PROFILE" "$SB/pgr-off.conf"; printf 'PF_EDGE_EXTRACTORS=""\n' >> "$SB/pgr-off.conf"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --conf "$SB/pgr-off.conf" --paths lib/b.php; strip; RC_OFF=$RC; OUT_OFF="$OUTT"
+{ [ "$RC_G" = "$RC_OFF" ] && [ "$(tail -n 1 "$OUT_G")" = "$(tail -n 1 "$OUT_OFF")" ]; }; check graph-row "exit code and verdict line identical with the graph rows on and off (rc=$RC_G/$RC_OFF)" $?
+{ lacks 'WARN graph' "$OUT_G" && lacks 'STOP graph' "$OUT_G" && lacks 'UNMEASURED graph' "$OUT_G"; }; check graph-row "an AMBIGUOUS edge naming the path is shown, never a WARN, STOP or UNMEASURED" $?
+# no extractor declared: ONE info row for the whole check
+{ has 'info graph  *NOT measured - the profile declares no edge extractors' "$OUT_OFF" && [ "$(grep -cE '^  [A-Za-z]+ +graph +' "$OUT_OFF")" = 1 ]; }; check graph-row "no extractor declared: one info row, not a warning" $?
+# edge file absent: one info row, nothing is built
+cp "$EDGEFILE" "$SB/edges.keep"; rm -f "$EDGEFILE"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths lib/b.php lib/c.php; strip; RC_ABS=$RC
+{ has 'info graph  *NOT measured - edge file absent' "$OUTT" && [ "$(grep -cE '^  [A-Za-z]+ +graph +' "$OUTT")" = 1 ] && [ ! -e "$EDGEFILE" ] && lacks 'UNMEASURED graph' "$OUTT"; }; check graph-row "edge file absent: one info row, never built by the pre-flight, not UNMEASURED (rc=$RC_ABS)" $?
+{ [ "$RC_ABS" = "$RC_OFF" ]; }; check graph-row "edge file absent: exit code unchanged (rc=$RC_ABS vs $RC_OFF)" $?
+cp "$SB/edges.keep" "$EDGEFILE"; touch "$EDGEFILE"
+# cap
+prof_set PF_GRAPH_ROWS_MAX 1; touch "$EDGEFILE"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths lib/b.php lib/c.php; strip
+{ [ "$(grep -c 'ok   graph' "$OUTT")" = 2 ] && has 'ok   graph  *lib/b.php:' "$OUTT" && has '1 more path(s) not shown (cap 1, PF_GRAPH_ROWS_MAX)' "$OUTT" && lacks 'lib/c.php: ' "$OUTT"; }; check graph-row "PF_GRAPH_ROWS_MAX=1: one path row, then a count of the paths not shown" $?
+# stale: answered from the old file, said so, never rebuilt
+prof_set PF_GRAPH_ROWS_MAX 12; touch "$EDGEFILE"
+touch -t 203501010000 lib/b.php; cp "$EDGEFILE" "$SB/edges.before"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths lib/b.php; strip; RC_ST=$RC
+{ has 'ok   graph  *lib/b.php: .*\[edge file STALE' "$OUTT" && cmp -s "$EDGEFILE" "$SB/edges.before"; }; check graph-row "stale edge file: the row says STALE and the file is not rebuilt (rc=$RC_ST)" $?
+{ [ "$RC_ST" = "$RC_OFF" ]; }; check graph-row "stale edge file: exit code unchanged" $?
+touch -t 200001010000 lib/b.php
 
 ###############################################################################
 # A2 — exit 3 means "did not run"; 0/1/2 stay verdicts
@@ -1037,7 +1134,7 @@ run bash "$KITREL/doctor.sh"
 # 10 — scripts, skeleton and profile carry no French and no origin-project noun
 ###############################################################################
 cd "$C" || exit 64
-SCAN="pm-kit/doctor.sh pm-kit/catalog.sh pm-kit/load-telemetry.sh pm-kit/lint-claims-session.sh pm-kit/kernel skeleton profiles pm-kit.conf.example .github tests/ports.sh"
+SCAN="pm-kit/doctor.sh pm-kit/catalog.sh pm-kit/load-telemetry.sh pm-kit/lint-claims-session.sh pm-kit/kernel pm-kit/profiles skeleton profiles pm-kit.conf.example .github tests/ports.sh tests/graph-smoke.sh"
 # accented Latin letters (UTF-8 lead bytes C3 and C5), anywhere in a script or template
 # shellcheck disable=SC2086
 LC_ALL=C grep -rln "$(printf '\303')\|$(printf '\305')" $SCAN > "$SB/accents.txt" 2>/dev/null
@@ -1131,10 +1228,10 @@ cd "$PROJ" 2>/dev/null || true
 ###############################################################################
 cd "$C" || exit 64
 V="$(tr -d ' \n' < VERSION)"
-{ [ "$V" = 0.3.0 ]; }; check 16 "VERSION is 0.3.0 (got '$V')" $?
+{ [ "$V" = 0.4.0 ]; }; check 16 "VERSION is 0.4.0 (got '$V')" $?
 { grep -q "^## \[$V\] - " CHANGELOG.md && ! grep -q '^## \[Unreleased\]' CHANGELOG.md; }; check 16 "CHANGELOG has a dated entry for the VERSION and no Unreleased section" $?
-for w in 'Exit code 3 means' 'past `PF_ARB_STOP_DAYS` are an ambient WARN' 'does not push unless asked' 'ambient' 'Solo mode'; do
-  grep -qF "$w" CHANGELOG.md; check 16 "CHANGELOG 'Behaviour changes' mentions: $w" $?
+for w in 'Exit code 3 means' 'past `PF_ARB_STOP_DAYS` are an ambient WARN' 'does not push unless asked' 'ambient' 'Solo mode' '--ambient-full' 'graph.sh' 'PF_GRAPH_ROWS_MAX'; do
+  grep -qF -- "$w" CHANGELOG.md; check 16 "CHANGELOG 'Behaviour changes' mentions: $w" $?
 done
 cd "$PROJ" 2>/dev/null || true
 

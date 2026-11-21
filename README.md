@@ -148,7 +148,7 @@ The layout is fixed in one respect: the scripts expect the kit at
 ## Requirements
 
 - bash 3.2 or later, git, awk (gawk or mawk, in any locale), sed, grep, find,
-  mktemp, cmp, comm, sort, od. `git` must understand `:(exclude)` pathspecs
+  mktemp, cmp, comm, sort, od, and xargs, tr, cut for the optional graph. `git` must understand `:(exclude)` pathspecs
   (any release since 1.9).
 - `jq`: required by `bash-guard.sh` (without it the guard prints `bash-guard INACTIVE`
   on stderr and exits 1, failing open visibly, and its `--self-test` and the
@@ -284,6 +284,16 @@ prints `UNMEASURED` and keeps exit 1; a target the profile never declares prints
 n/a and changes nothing. Rows that come only from an always-checked governance
 path carry the marker `[ambient]` (`"ambient":true` in `--json`).
 
+The output is a fixed cost of every consult, so the rails keyed to the
+always-checked governance paths (`PF_ALWAYS_PATHS`) are folded by default into
+one `[ambient]` summary row per file: the count per severity and the command
+that shows them. They depend on the project, not on the build, and on the origin
+project they were 94 % of a 127 KB output. `--ambient-full` prints every rail.
+Folding changes what is printed, never what is counted: the warning totals, the
+verdict line and the exit code are identical in both modes. A rail keyed to a
+`--paths` path is never folded, and `--json` always keeps every row. The ambient
+ownership and arbitration rows are not folded.
+
 **Rails** are constraints recorded in the index against a named surface.
 `rails-index.sh` mines them into a table keyed by surface, so that a build
 touching the surface finds the rail by lookup.
@@ -313,6 +323,8 @@ written outside list items, and which shipped hooks are wired in
 | `pm-kit/init.sh` | Installs the kit into a repository for a project name and a developer initial. Idempotent, never overwrites, `--dry-run`. |
 | `pm-kit/kernel/pm-preflight.sh` | The pre-flight. Exit 0 / 1 / 2, and 3 when it did not run. |
 | `pm-kit/kernel/rails-index.sh` | Generates the rails table from the index. Exit 0 / 1 (declared expansion unmeasured) / 2 / 3. |
+| `pm-kit/kernel/graph.sh` | The dependency graph: builds the edge file from the profile's extractors and answers `affected`, `summary`, `rank`, `path`. Exit 0 / 3 / 4 / 2 / 5 / 64; see "Dependency graph". |
+| `pm-kit/profiles/extractors/` | Two example extractors for `graph.sh` (`php-include-edges.sh`, `sql-table-edges.sh`). Examples, not kernel: the kernel runs whatever command the profile names. |
 | `pm-kit/kernel/ownership-lint.sh` | Paths against the ownership map and the claims file. Exit 0 / 1 / 2, and 3 when it could not judge. |
 | `pm-kit/kernel/claim.sh` | The only writer of claim rows. |
 | `pm-kit/kernel/session-ledger.sh` | PostToolUse hook: which session wrote which memory file. |
@@ -322,7 +334,7 @@ written outside list items, and which shipped hooks are wired in
 | `pm-kit/load-telemetry.sh` | PostToolUse hook: counts topic-file reads. |
 | `pm-kit.conf.example` | Paths and budgets for the doctor, catalog, telemetry, sync. |
 | `profiles/example.conf` | Everything project-specific the kernel scripts read, and nothing they do not (`tests/conf-surface.sh` enforces both). |
-| `tests/` | `smoke.sh` (the audited defects), `ports.sh` (sync, ledger, claims), `init.sh`, `quickstart.sh` (runs the section above literally), `conf-surface.sh`, `comply/selftest.sh` (the offline tests of the PM compliance harness). CI runs them on ubuntu and macOS (the comply selftest has been run on Linux by the author; macOS is CI-only), and `smoke.sh`, `ports.sh`, `init.sh`, `quickstart.sh` and the comply selftest again under mawk with `LC_ALL=C`. |
+| `tests/` | `smoke.sh` (the audited defects), `ports.sh` (sync, ledger, claims), `init.sh`, `quickstart.sh` (runs the section above literally), `graph-smoke.sh` (the graph and its example extractors, on fixture repositories), `conf-surface.sh`, `comply/selftest.sh` (the offline tests of the PM compliance harness). CI runs them on ubuntu and macOS (the comply selftest has been run on Linux by the author; macOS is CI-only), and `smoke.sh`, `ports.sh`, `init.sh`, `quickstart.sh`, `graph-smoke.sh` and the comply selftest again under mawk with `LC_ALL=C`. |
 | `tests/comply/` | The PM compliance harness: runs the PM agent on scripted consults and grades its tool calls with literal detectors. `run.sh` starts `claude` and costs real API money, so it is manual and never in CI; see [`tests/comply/README.md`](tests/comply/README.md). Scenarios are per instance. |
 | `skeleton/agent-example.md` | Agent file template with the bindings filled for a fictional project. |
 | `skeleton/CLAUDE.md.snippet` | The consultation rule for your CLAUDE.md. |
@@ -370,6 +382,65 @@ Its memory is ordinary files in your repository, read with the Read tool and
 shared through git. If you also use auto memory, the two stores do not know
 about each other; keep project build state in the PM's files.
 
+## Dependency graph
+
+`pm-kit/kernel/graph.sh` answers "what depends on X" from a generated file
+instead of a grep followed by a handful of file reads. It is deterministic and
+reads no model output.
+
+The edge file, `claude-brain/pm-kit/state/artefact-edges.tsv` by default, is
+generated, git-ignored, and rebuilt by every clone. One edge per line:
+`from`, `to`, `kind`, `provenance`, `source#line`. The provenance says how
+much to trust it:
+
+- `EXTRACTED`: the target was read literally and is an existing tracked file.
+- `INFERRED`: reconstructed from a recognisable indirect form, and it resolves
+  to exactly one existing file.
+- `AMBIGUOUS`: a variable, several candidates, or none. It is written with the
+  raw expression as `to`, never dropped, so that "nothing depends on X" is
+  never answered while an unresolved reference might.
+
+The kernel knows no language. The profile declares what to run
+(`PF_EDGE_INPUTS`, `PF_EDGE_OUTPUT`, `PF_EDGE_EXTRACTORS` and one
+`PF_EDGE_CMD_<name>` per extractor; `profiles/example.conf`, section 12), and an
+extractor is any command that prints the five columns. Two ship in
+`pm-kit/profiles/extractors/` as examples: `php-include-edges.sh` (kind
+`include`) and `sql-table-edges.sh` (kinds `sql-read`, `sql-write`,
+`declared-writer`; it takes a plain text file of your table and view names, one
+per line, and fails loudly when that file is missing or empty instead of
+printing zero edges). They are not kernel; copy and adapt them for your own
+language.
+
+    graph.sh build                          run the extractors, write the edge file
+    graph.sh affected <X> [--kind K,K] [--depth N] [--budget LINES]
+    graph.sh summary <X>                    one line: "X: 2 include, 1 sql-read"
+    graph.sh rank [--top N]                 files by number of dependents
+    graph.sh path <A> <B>                   shortest chain, A depends on ... B
+
+| exit | meaning |
+|---|---|
+| 0 | at least one result, and every edge used is `EXTRACTED` or `INFERRED` |
+| 3 | ambiguous: the name matched several nodes, or an `AMBIGUOUS` edge may concern it; the certain results are printed first |
+| 4 | no result and nothing ambiguous |
+| 2 | not measured: the edge file is unreadable, or absent or stale and the rebuild failed or was refused |
+| 5 | the name is not a node of the graph |
+| 64 | usage error, no profile, or nothing declared to run |
+
+A query on an absent or stale edge file rebuilds it once and says so on one
+stderr line. `--no-rebuild` refuses instead (exit 2) and `--allow-stale`
+answers from the old file. A failed build leaves the previous file untouched.
+
+The pre-flight reads the graph but never builds it. With `--paths`, it prints
+one `ok graph` row per path that is a node of the edge file, the `summary` line,
+capped by `PF_GRAPH_ROWS_MAX` (default 12). It is advice: never a warning or a
+STOP, and the counters, the verdict line and the exit code do not change. When
+the edge file is absent or no extractor is declared it prints one `info` row
+for the whole check, and nothing at all without `--paths`.
+
+What it cannot see: anything no extractor reads, dynamic references (they stay
+`AMBIGUOUS`), and code generated at run time. A graph answers "who names X",
+not "who depends on X at run time".
+
 ## Limits
 
 What the kit does, sorted by what actually enforces it. "Mechanical" means a
@@ -394,6 +465,7 @@ nothing does it.
 | The index is read whole | kernel; byte budget in `pm-kit.conf` | Model. The budget is in bytes and the read limit is in tokens; the default budgets are not calibrated to your text. See "Budgets" in `PROTOCOL.md`. |
 | The memory maintains itself | hygiene passes by the PM under the kernel's rules | Model, with human rulings. The origin project needed repeated human-ordered passes. No lock tool ships for the "one writer at a time" rule. |
 | Unused topic files surface | `load-telemetry.sh` and the doctor | Mechanical, when the hook is wired and `jq` is installed. |
+| The dependents of a file are known | `graph.sh`, through the profile's extractors | Mechanical for what the extractors read, and an unresolved reference is reported as `AMBIGUOUS`, never as "no dependents". Nothing for files no extractor reads, and the pre-flight shows the graph only for the `--paths` it is given. |
 | The catalog is current | `catalog.sh` regenerates on each call | Mechanical for the file list. Trigger lines are written by the PM (model); a stale one is not detected. |
 | Statements are checked or labelled | kernel, "Provenance" | Model. |
 | The build serves the plan | kernel goal check against `${PLAN_DOC}` | Model. No script reads the plan document, and nothing compares what was built with what was asked. |
@@ -455,6 +527,13 @@ of self-reporting, dormant-entry detection as a hygiene signal) is inspired by
 [@HabibiCodeCH](https://github.com/HabibiCodeCH): its decision-ledger
 `MAX_INJECTED_ENTRIES` cap, per-entry `verifyCalls` counters, and 90-day
 dormancy review. The two were built independently.
+
+The idea of a provenance-tagged dependency graph, with local `affected` and
+`path` queries in place of reading files, comes from
+[graphify](https://github.com/Graphify-Labs/graphify) (earlier published at
+[safishamsi/graphify](https://github.com/safishamsi/graphify)). This kit
+re-implements the idea in shell with deterministic extractors and uses none of
+its code.
 
 ## License
 
