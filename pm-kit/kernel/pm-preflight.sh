@@ -1048,6 +1048,57 @@ else
   fi
 fi
 
+# ── P9. Dependency-graph summary for the --paths (informational, never a finding) ──
+# One `ok graph` row per --paths path that is a node of the edge file: the
+# `graph.sh summary` line (who depends on it, by kind). It can NEVER warn or stop and
+# never touches a counter, the verdict or the exit code. Prints nothing without --paths.
+# It does NOT build the graph: it reads the existing edge file and, when that file is
+# older than its inputs, answers from it anyway and says so in the row.
+# Absent file or no extractors declared: ONE `info` row, NOT `unmeasured`: an
+# unmeasured row raises the exit code to 1 and counts in the verdict, and this check
+# is advice, so a clone that never built the graph must not lose its CLEAR for it.
+# PF_GRAPH_ROWS_MAX (default 12) caps the rows; a last row counts the paths not shown.
+if [ ${#PATHS[@]} -gt 0 ]; then
+  # the section header is printed with the first row, so a --paths run that names no
+  # graph node prints nothing here
+  _GSEC=0
+  _gsec() { [ "$_GSEC" = 1 ] || { sec "P9 · dependency graph"; _GSEC=1; }; }
+  GRAPH_ROWS_MAX="${PF_GRAPH_ROWS_MAX:-12}"
+  case "$GRAPH_ROWS_MAX" in ''|*[!0-9]*) GRAPH_ROWS_MAX=12 ;; esac
+  _GEDGES="${PF_EDGE_OUTPUT:-claude-brain/pm-kit/state/artefact-edges.tsv}"
+  case "$_GEDGES" in /*) ;; *) _GEDGES="$REPO_ROOT/$_GEDGES" ;; esac
+  if [ -z "${PF_EDGE_EXTRACTORS:-}" ]; then
+    _gsec; info graph "NOT measured - the profile declares no edge extractors (PF_EDGE_EXTRACTORS)"
+  elif [ ! -f "$_GEDGES" ] || [ ! -f "$KIT_DIR/graph.sh" ]; then
+    _gsec; info graph "NOT measured - edge file absent (${_GEDGES#"$REPO_ROOT"/}); run: ${KIT_DIR#"$REPO_ROOT"/}/graph.sh build"
+  else
+    awk -F'\t' '$4 != "AMBIGUOUS" { print $1; print $2 }' "$_GEDGES" | sort -u > "$TMP/graph-nodes"
+    : > "$TMP/graph-cand"
+    for _gp in "${PATHS[@]}"; do
+      _gp="${_gp#./}"; _gp="${_gp#"$REPO_ROOT"/}"
+      grep -Fxq -- "$_gp" "$TMP/graph-nodes" && ! grep -Fxq -- "$_gp" "$TMP/graph-cand" && printf '%s\n' "$_gp" >> "$TMP/graph-cand"
+    done
+    _gn=0; _gtotal=$(wc -l < "$TMP/graph-cand" | tr -d ' '); _gstale=-1
+    while IFS= read -r _gp; do
+      [ "$_gn" -ge "$GRAPH_ROWS_MAX" ] && break
+      _gn=$((_gn + 1))
+      _gl=""
+      if [ "$_gstale" != 1 ]; then
+        _gl=$(bash "$KIT_DIR/graph.sh" summary --no-rebuild "$_gp" 2>/dev/null); _grc=$?
+        if [ "$_grc" = 2 ]; then _gstale=1; else _gstale=0; fi
+      fi
+      if [ "$_gstale" = 1 ]; then
+        _gl=$(bash "$KIT_DIR/graph.sh" summary --allow-stale "$_gp" 2>/dev/null)
+        _gl="$_gl  [edge file STALE - older than its inputs; rebuild: ${KIT_DIR#"$REPO_ROOT"/}/graph.sh build]"
+      fi
+      _gl=$(printf '%s\n' "$_gl" | head -n 1)
+      [ -n "$_gl" ] || _gl="$_gp: graph summary unavailable (graph.sh printed nothing)"
+      _gsec; ok graph "$_gl"
+    done < "$TMP/graph-cand"
+    [ "$_gtotal" -gt "$_gn" ] && { _gsec; ok graph "$((_gtotal - _gn)) more path(s) not shown (cap $GRAPH_ROWS_MAX, PF_GRAPH_ROWS_MAX)"; }
+  fi
+fi
+
 # ── verdict ────────────────────────────────────────────────────────────────────
 if [ "$DO_JSON" = 1 ]; then
   printf '{"rc":%d,"warn":%d,"stop":%d,"unmeasured":%d,"ambient_warn":%d,"checks":[%s]}\n' "$RC" "$WARN_N" "$STOP_N" "$UNMEAS_N" "$AMB_N" "${JSON_ROWS%,}"

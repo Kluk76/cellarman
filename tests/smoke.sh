@@ -718,6 +718,58 @@ run env ACME_DEV=a LC_ALL=C bash bin/pm-preflight.sh --no-fetch --paths src/x.ph
 { [ "$(grep -c 'folded' "$OUTT")" = 2 ]; }; check fold "the fold is the same under LC_ALL=C" $?
 
 ###############################################################################
+# graph row — pre-flight P9: one ok row per --paths path that is a graph node
+###############################################################################
+mk_proj pgr remote
+mkdir -p lib pages
+printf '<?php\nfunction b() {}\n' > lib/b.php
+printf '<?php\nrequire_once __DIR__ . "/../lib/b.php";\n' > pages/a.php
+printf '<?php\nrequire __DIR__ . "/gone/b.php";\n' > pages/amb.php
+printf '<?php\nfunction c() {}\n' > lib/c.php
+printf '<?php\nrequire __DIR__ . "/../lib/c.php";\n' > pages/c1.php
+printf '<?php\n$x = 1;\n' > lib/alone.php
+prof_set PF_EDGE_INPUTS '"lib/*.php pages/*.php"'
+prof_set PF_EDGE_EXTRACTORS '"include"'
+prof_set PF_EDGE_CMD_include "'bash \"\$GRAPH_KIT_DIR/profiles/extractors/php-include-edges.sh\"'"
+commit_all "graph fixture"
+run bash "$KITREL/kernel/graph.sh" build
+{ [ "$RC" = 0 ]; }; check graph-row "fixture: the graph builds (rc=$RC)" $?
+EDGEFILE="$KITREL/state/artefact-edges.tsv"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths lib/b.php; strip; RC_G=$RC; OUT_G="$OUTT"
+{ has '^  ok   graph  *lib/b.php: 1 include, 1 ambiguous$' "$OUT_G" && [ "$(grep -cE '^  [A-Za-z]+ +graph +' "$OUT_G")" = 1 ]; }; check graph-row "--paths on a graph node: one ok row, the graph.sh summary line (rc=$RC_G)" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths lib/b.php --json
+{ has '"level":"ok","check":"graph","msg":"lib/b.php: 1 include, 1 ambiguous"' "$OUT"; }; check graph-row "--json: the graph row is there, level ok" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch; strip
+{ ! grep -qE '^  [A-Za-z]+ +graph +|P9' "$OUTT"; }; check graph-row "no --paths: nothing about the graph is printed" $?
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths lib/alone.php; strip
+{ ! grep -qE '^  [A-Za-z]+ +graph +' "$OUTT"; }; check graph-row "a path that is not a node of the graph prints no row" $?
+# counters, verdict and exit code are those of the same run with the graph switched off
+# (the profile assigns PF_EDGE_EXTRACTORS itself, so the environment cannot blank it: compare against a profile copy)
+cp "$PROFILE" "$SB/pgr-off.conf"; printf 'PF_EDGE_EXTRACTORS=""\n' >> "$SB/pgr-off.conf"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --conf "$SB/pgr-off.conf" --paths lib/b.php; strip; RC_OFF=$RC; OUT_OFF="$OUTT"
+{ [ "$RC_G" = "$RC_OFF" ] && [ "$(tail -n 1 "$OUT_G")" = "$(tail -n 1 "$OUT_OFF")" ]; }; check graph-row "exit code and verdict line identical with the graph rows on and off (rc=$RC_G/$RC_OFF)" $?
+{ lacks 'WARN graph' "$OUT_G" && lacks 'STOP graph' "$OUT_G" && lacks 'UNMEASURED graph' "$OUT_G"; }; check graph-row "an AMBIGUOUS edge naming the path is shown, never a WARN, STOP or UNMEASURED" $?
+# no extractor declared: ONE info row for the whole check
+{ has 'info graph  *NOT measured - the profile declares no edge extractors' "$OUT_OFF" && [ "$(grep -cE '^  [A-Za-z]+ +graph +' "$OUT_OFF")" = 1 ]; }; check graph-row "no extractor declared: one info row, not a warning" $?
+# edge file absent: one info row, nothing is built
+cp "$EDGEFILE" "$SB/edges.keep"; rm -f "$EDGEFILE"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths lib/b.php lib/c.php; strip; RC_ABS=$RC
+{ has 'info graph  *NOT measured - edge file absent' "$OUTT" && [ "$(grep -cE '^  [A-Za-z]+ +graph +' "$OUTT")" = 1 ] && [ ! -e "$EDGEFILE" ] && lacks 'UNMEASURED graph' "$OUTT"; }; check graph-row "edge file absent: one info row, never built by the pre-flight, not UNMEASURED (rc=$RC_ABS)" $?
+{ [ "$RC_ABS" = "$RC_OFF" ]; }; check graph-row "edge file absent: exit code unchanged (rc=$RC_ABS vs $RC_OFF)" $?
+cp "$SB/edges.keep" "$EDGEFILE"; touch "$EDGEFILE"
+# cap
+prof_set PF_GRAPH_ROWS_MAX 1; touch "$EDGEFILE"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths lib/b.php lib/c.php; strip
+{ [ "$(grep -c 'ok   graph' "$OUTT")" = 2 ] && has 'ok   graph  *lib/b.php:' "$OUTT" && has '1 more path(s) not shown (cap 1, PF_GRAPH_ROWS_MAX)' "$OUTT" && lacks 'lib/c.php: ' "$OUTT"; }; check graph-row "PF_GRAPH_ROWS_MAX=1: one path row, then a count of the paths not shown" $?
+# stale: answered from the old file, said so, never rebuilt
+prof_set PF_GRAPH_ROWS_MAX 12; touch "$EDGEFILE"
+touch -t 203501010000 lib/b.php; cp "$EDGEFILE" "$SB/edges.before"
+run env ACME_DEV=a bash bin/pm-preflight.sh --no-fetch --paths lib/b.php; strip; RC_ST=$RC
+{ has 'ok   graph  *lib/b.php: .*\[edge file STALE' "$OUTT" && cmp -s "$EDGEFILE" "$SB/edges.before"; }; check graph-row "stale edge file: the row says STALE and the file is not rebuilt (rc=$RC_ST)" $?
+{ [ "$RC_ST" = "$RC_OFF" ]; }; check graph-row "stale edge file: exit code unchanged" $?
+touch -t 200001010000 lib/b.php
+
+###############################################################################
 # A2 — exit 3 means "did not run"; 0/1/2 stay verdicts
 ###############################################################################
 mk_proj pa2x remote
