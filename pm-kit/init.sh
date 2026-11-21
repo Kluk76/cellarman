@@ -114,12 +114,12 @@ rm -rf "$STAGE/claude-brain/pm-kit/state"
 mkdir -p "$STAGE/claude-brain/pm-kit/profiles"
 # One developer: DEVS, DEV_<id>, and the initial in the author/id patterns. [a-z]
 # keeps the id and queue patterns tolerant if a second developer joins later.
-# The example profile declares a migrations queue, a deploy host, a database probe
-# and a view graph that a new project does not have. Declaring a host that does not
-# exist would make `--probe-db` ssh to it, so those variables start EMPTY (n/a: the
+# The example profile declares a migrations queue, a deploy host, a database probe,
+# a view graph and a dependency graph that a new project does not have. Declaring a
+# host that does not exist would make `--probe-db` ssh to it, so those variables start EMPTY (n/a: the
 # phase measures nothing and says so). The kit's own profiles/example.conf shows
 # them filled in; copy a line back when you have the thing it describes.
-EMPTIED="PF_QUEUE_DIR PF_QUEUE_STAGING PF_QUEUE_TARGET PF_DB_SCHEMA PF_NS_TAKEN PF_TARGET_HOST PF_TARGET_PATH PF_ARTEFACT_EXPAND PF_ARTEFACT_GRAPH_CACHE PF_OWNERSHIP_PROSE PF_SHARED_TOOLS PF_DEBT_FILE"
+EMPTIED="PF_QUEUE_DIR PF_QUEUE_STAGING PF_QUEUE_TARGET PF_DB_SCHEMA PF_NS_TAKEN PF_TARGET_HOST PF_TARGET_PATH PF_ARTEFACT_EXPAND PF_ARTEFACT_GRAPH_CACHE PF_OWNERSHIP_PROSE PF_SHARED_TOOLS PF_DEBT_FILE PF_EDGE_INPUTS PF_EDGE_EXTRACTORS"
 rename "$KIT_ROOT/profiles/example.conf" \
   | sed -e "s/^DEVS=.*/DEVS=\"$DEV\"/" \
         -e "/^DEV_a=/d" \

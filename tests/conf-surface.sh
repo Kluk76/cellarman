@@ -18,10 +18,11 @@
 # Exit 0: the two agree. Exit 3: it could not run (missing conf or kit).
 #
 # Profile readers: kernel/pm-preflight.sh, kernel/ownership-lint.sh,
-# kernel/rails-index.sh, kernel/claim.sh, lint-claims-session.sh, plus the names
+# kernel/rails-index.sh, kernel/claim.sh, kernel/graph.sh, lint-claims-session.sh, plus the names
 # doctor.sh asks for with `_prof NAME` (doctor sources pm-kit.conf, not the
 # profile, so its other names do not count). A family such as DEV_<id> counts as
-# read when a script expands it by prefix (`DEV_${...}`).
+# read when a script expands it by prefix (`DEV_${...}`; graph.sh reads the
+# PF_EDGE_CMD_<name> family that way).
 #
 # This file is the reader of record: tests/smoke.sh runs it on the shipped tree
 # (must pass) and on fixtures that break each rule (must fail).
@@ -99,7 +100,7 @@ surface() {
 
 # Profile readers (doctor.sh contributes only the names it asks for with `_prof`).
 { code_of pm-kit/kernel/pm-preflight.sh pm-kit/kernel/ownership-lint.sh pm-kit/kernel/rails-index.sh \
-          pm-kit/kernel/claim.sh pm-kit/lint-claims-session.sh
+          pm-kit/kernel/claim.sh pm-kit/kernel/graph.sh pm-kit/lint-claims-session.sh
   grep -oE '_prof [A-Z][A-Z0-9_]*' "$KIT/pm-kit/doctor.sh" | awk '{print $2}'; } > "$T/code-profile"
 surface profile "$CONF" "$T/code-profile" "$CONF"
 

@@ -1082,7 +1082,7 @@ run bash "$KITREL/doctor.sh"
 # 10 — scripts, skeleton and profile carry no French and no origin-project noun
 ###############################################################################
 cd "$C" || exit 64
-SCAN="pm-kit/doctor.sh pm-kit/catalog.sh pm-kit/load-telemetry.sh pm-kit/lint-claims-session.sh pm-kit/kernel skeleton profiles pm-kit.conf.example .github tests/ports.sh"
+SCAN="pm-kit/doctor.sh pm-kit/catalog.sh pm-kit/load-telemetry.sh pm-kit/lint-claims-session.sh pm-kit/kernel pm-kit/profiles skeleton profiles pm-kit.conf.example .github tests/ports.sh tests/graph-smoke.sh"
 # accented Latin letters (UTF-8 lead bytes C3 and C5), anywhere in a script or template
 # shellcheck disable=SC2086
 LC_ALL=C grep -rln "$(printf '\303')\|$(printf '\305')" $SCAN > "$SB/accents.txt" 2>/dev/null
