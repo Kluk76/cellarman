@@ -342,6 +342,7 @@ written outside list items, and which shipped hooks are wired in
 | `skeleton/hooks/pm-consult-nudge.sh` | Optional SessionStart reminder. |
 | `skeleton/hooks/pm-report-back-gate.sh` | Optional one-shot gate on report-back consults. Off by default. |
 | `skeleton/hooks/bash-guard.sh`, `bash-guard.cases` | PreToolUse(Bash) guard for the agent's shell tool: refuses `--no-verify`, a changed `core.hooksPath`, a blanket `git add`, and a success message after a piped command; warns on an exit code read through a pipe. `init.sh` installs both files; the pre-flight watches it through `PF_AGENT_GUARDS` (tracked, wired, `--self-test` green). |
+| `skeleton/workflow-lot.example.js` | Opt-in example Claude Code Workflow script (triage, isolated build, mutation verifier, graph-driven second reviewer, synthesis). Not installed by `init.sh`, not run by the tests. See "Using the graph to decide review depth". |
 | `skeleton/pm-sync.example.sh` | Session-scoped memory commit and guarded push. |
 | `skeleton/*.example*`, `skeleton/index-seed.md` | Templates for the index, claims, ownership map, arbitration register, git attributes, gitignore, pre-commit hook, launcher. |
 
@@ -440,6 +441,19 @@ for the whole check, and nothing at all without `--paths`.
 What it cannot see: anything no extractor reads, dynamic references (they stay
 `AMBIGUOUS`), and code generated at run time. A graph answers "who names X",
 not "who depends on X at run time".
+
+### Using the graph to decide review depth
+
+`skeleton/workflow-lot.example.js` is an opt-in example of a Claude Code Workflow
+script that uses `graph.sh` to decide how much review a unit of work gets. After a
+triage grid, an agent runs `graph.sh rank` and `graph.sh summary` on the files of the
+lot; a file is "hot" when it is in the top N by in-degree, with N read from
+`PF_GRAPH_HOT_RANK_N` in your profile (`profiles/example.conf`, section 13; set it
+from your own `rank` output, where the count drops sharply). A hot file, or a graph
+that measured nothing, adds a second reviewer on top of the mutation verifier. The
+setting is read by the example workflow only, never by the kernel. `init.sh` does not
+install the example; copy it to `.claude/workflows/lot.js` and adjust the paths at its
+top. The workflow example is not executed by the kit's test suite.
 
 ## Limits
 
