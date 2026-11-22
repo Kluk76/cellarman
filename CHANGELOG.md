@@ -4,6 +4,34 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/) from 0.2.0 on.
 
+## [0.4.1] - 2026-11-22
+
+An example workflow that uses the dependency graph, and one profile setting for it.
+Nothing in the kernel, the pre-flight or `PROTOCOL.md` changed. To adopt: copy
+`skeleton/workflow-lot.example.js` to `.claude/workflows/lot.js` if you want it, and add
+`PF_GRAPH_HOT_RANK_N` to your profile.
+
+### Added
+
+- `skeleton/workflow-lot.example.js`, an opt-in example Claude Code Workflow script: a
+  triage grid, a build in an isolated worktree that commits nothing, an always-on
+  mutation verifier, a second reviewer when triage says so, when a file of the lot is
+  hot in the graph, or when the graph measured nothing, and a synthesis that
+  re-checks each finding and stops before commit. Its pure `reviewPlan(decision, graph)`
+  was checked on the eight triage-by-graph cases; the script itself is not run by the
+  test suite. `init.sh` does not install it (like `githooks-pre-commit.example`, it is
+  an opt-in example).
+- Profile variable `PF_GRAPH_HOT_RANK_N` (default 8, section 13 of
+  `profiles/example.conf`): a file is hot when it is in the top N by in-degree of
+  `graph.sh rank`. Read by the example workflow only, not by the kernel.
+- README: "Using the graph to decide review depth".
+- `tests/smoke.sh`: the VERSION assertion follows 0.4.1; `PF_GRAPH_HOT_RANK_N` sits in the agent-read block of the profile (no shell script reads it).
+
+### Notes
+
+- The source project also taught its own skills installer to prune files deleted
+  upstream; the kit ships no skills installer, so there is nothing to port.
+
 ## [0.4.0] - 2026-11-21
 
 A folded pre-flight, and a dependency graph with example extractors. Nothing in the

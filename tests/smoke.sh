@@ -1228,7 +1228,7 @@ cd "$PROJ" 2>/dev/null || true
 ###############################################################################
 cd "$C" || exit 64
 V="$(tr -d ' \n' < VERSION)"
-{ [ "$V" = 0.4.0 ]; }; check 16 "VERSION is 0.4.0 (got '$V')" $?
+{ [ "$V" = 0.4.1 ]; }; check 16 "VERSION is 0.4.1 (got '$V')" $?
 { grep -q "^## \[$V\] - " CHANGELOG.md && ! grep -q '^## \[Unreleased\]' CHANGELOG.md; }; check 16 "CHANGELOG has a dated entry for the VERSION and no Unreleased section" $?
 for w in 'Exit code 3 means' 'past `PF_ARB_STOP_DAYS` are an ambient WARN' 'does not push unless asked' 'ambient' 'Solo mode' '--ambient-full' 'graph.sh' 'PF_GRAPH_ROWS_MAX'; do
   grep -qF -- "$w" CHANGELOG.md; check 16 "CHANGELOG 'Behaviour changes' mentions: $w" $?
