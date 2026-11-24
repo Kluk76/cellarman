@@ -99,6 +99,19 @@ function outsideStaged(after, before) {
   return (Array.isArray(after) ? after : []).filter(f => !known.has(f))
 }
 
+// Pure check of the fix round, measured by the re-checker against what the fix agent REPORTED.
+// Returns a list of problems; empty = OK.
+function fixIntegrity(fix, recheck, buildStaged) {
+  const problems = []
+  if (!fix || !recheck) return ['fix or re-check report missing']
+  const stray = outsideStaged(recheck.staged_measured, buildStaged)
+  if (stray.length) problems.push(`measured index has file(s) outside the build: ${stray.join(', ')}`)
+  if (recheck.tree_measured !== fix.tree_after) problems.push(`the index moved after the fix agent reported (measured tree ${recheck.tree_measured} != tree_after ${fix.tree_after})`)
+  const nFixed = Array.isArray(fix.fixed) ? fix.fixed.length : 0
+  if (nFixed > 0 && recheck.tree_measured === fix.tree_before) problems.push(`the fix agent claims ${nFixed} fix(es) but the worktree did not change (its edits went elsewhere)`)
+  return problems
+}
+
 let graph = null
 if (triage.decision !== 'full' && Array.isArray(args.files) && args.files.length) {
   graph = await agent(
@@ -246,6 +259,7 @@ const fp = fixPlan(synthesis)
 let fix = null
 let recheck = null
 let escalated = null
+let integrity = []
 if (!fp.run) {
   log(`Fix: not run (${synthesis ? 'verdict ' + synthesis.verdict + ', ' + fp.findings.length + ' confirmed' : 'no synthesis'})`)
 } else {
@@ -258,8 +272,9 @@ if (!fp.run) {
     `You fix confirmed findings in the existing worktree ${WT}. Your current directory is a SHARED tree where other sessions work, so:
 - EVERY Bash command starts with cd "${WT}" && ; every Edit/Write uses an absolute path starting with ${WT}/.
 - BEFORE any edit run: cd "${WT}" && test "$(git rev-parse --show-toplevel)" = "${WT}"; echo rc=$?  If rc is not 0, edit NOTHING, set toplevel_ok=false and a non-empty error.
+- Right after that guard, BEFORE any edit: cd "${WT}" && git write-tree > f 2>&1; echo rc=$?  and report the hash read from f as tree_before.
 - Modify only these staged files: ${JSON.stringify(build.staged)}. Create no new file.
-- Fix each confirmed finding below. AFTER your LAST edit, and not before: re-run EVERY test of this list against the candidate (exact commands): ${JSON.stringify(build.benches.map(b => b.cmd))}; run the project's linters on each touched file; stage the exact files (git add <files>, never a blanket add); run the project's pre-commit hook. Every exit code is read OUTSIDE a pipe (cmd > file 2>&1; echo "rc=$?").
+- Fix each confirmed finding below. AFTER your LAST edit, and not before: re-run EVERY test of this list against the candidate (exact commands): ${JSON.stringify(build.benches.map(b => b.cmd))}; run the project's linters on each touched file; stage the exact files (git add <files>, never a blanket add); run the project's pre-commit hook. Then report staged (git diff --cached --name-only, re-read after your last add) and tree_after (cd "${WT}" && git write-tree, run after that last add). Every exit code is read OUTSIDE a pipe (cmd > file 2>&1; echo "rc=$?").
 - Commit nothing, push nothing, deploy nothing, touch no shared database or remote host.
 
 CONFIRMED FINDINGS (JSON):
@@ -279,8 +294,10 @@ ${PLAN}`,
         lint_rc: { type: 'integer' },
         precommit_rc: { type: 'integer' },
         gates_after_last_edit: { type: 'boolean' },
+        tree_before: { type: 'string' },
+        tree_after: { type: 'string' },
       },
-      required: ['toplevel_ok', 'error', 'fixed', 'not_fixed', 'staged', 'benches', 'lint_rc', 'precommit_rc', 'gates_after_last_edit'],
+      required: ['toplevel_ok', 'error', 'fixed', 'not_fixed', 'staged', 'benches', 'lint_rc', 'precommit_rc', 'gates_after_last_edit', 'tree_before', 'tree_after'],
     } })
   const stray = fix ? outsideStaged(fix.staged, build.staged) : []
   if (!fix) escalated = 'fix agent died'
@@ -296,16 +313,27 @@ ${PLAN}`,
 Angle: RE-CHECK of the single fix round already applied in ${WT}. Fix report: ${JSON.stringify(fix)}
 Findings that were confirmed: ${JSON.stringify(fp.findings)}
 1. For EACH finding the fix report lists as fixed: re-apply, in a COPY in your scratch directory, the original mutation taken from its evidence. It must now make the test go RED (mutation_red = true).
-2. Re-run the WHOLE test suite against the fixed candidate: a fix can regress another criterion. Everything must be green. List any regression.`,
+2. Re-run the WHOLE test suite against the fixed candidate: a fix can regress another criterion. Everything must be green. List any regression.
+3. MEASURE the worktree, do not trust the fix report (every command starts with cd, exit codes read outside a pipe):
+   - staged_measured = git -C "${WT}" diff --cached --name-only (index against the worktree HEAD, which is how the build listed its staged files; if HEAD is not origin/main use git -C "${WT}" diff --cached origin/main --name-only instead, and say which one you chose);
+   - tree_measured = git -C "${WT}" write-tree;
+   - wt_changed = (tree_measured differs from ${JSON.stringify(fix.tree_before)}), an exact comparison with the fix agent's tree_before.`,
       { label: 'recheck', phase: 'Fix', schema: {
         type: 'object',
         properties: {
           checks: { type: 'array', items: { type: 'object', properties: { claim: { type: 'string' }, mutation_red: { type: 'boolean' }, evidence: { type: 'string' } }, required: ['claim', 'mutation_red', 'evidence'] } },
           full_suite_green: { type: 'boolean' },
           regressions: { type: 'array', items: { type: 'string' } },
+          staged_measured: { type: 'array', items: { type: 'string' } },
+          tree_measured: { type: 'string' },
+          wt_changed: { type: 'boolean' },
         },
-        required: ['checks', 'full_suite_green', 'regressions'],
+        required: ['checks', 'full_suite_green', 'regressions', 'staged_measured', 'tree_measured', 'wt_changed'],
       } })
+    if (recheck) {
+      integrity = fixIntegrity(fix, recheck, build.staged)
+      for (const pb of integrity) log(`Fix integrity: ${pb}`)
+    }
   }
 }
 
@@ -316,7 +344,7 @@ if (synthesis && synthesis.verdict === 'reject') final_verdict = 'reject'
 else if (synthesis && synthesis.verdict === 'ready' && synthesis.confirmed.length === 0) final_verdict = 'ready'
 else if (fp.run && !escalated && fix && recheck && fix.not_fixed.length === 0 &&
          recheck.checks.length > 0 && recheck.checks.every(c => c.mutation_red) && recheck.full_suite_green &&
-         fix.gates_after_last_edit) final_verdict = 'ready'
+         fix.gates_after_last_edit && integrity.length === 0) final_verdict = 'ready'
 log(`Final verdict: ${final_verdict}${escalated ? ' (fix escalated: ' + escalated + ')' : ''}`)
 
-return { triage, graph, build, reviews, synthesis, fix, recheck, final_verdict }
+return { triage, graph, build, reviews, synthesis, fix, recheck, fix_integrity: integrity, final_verdict }
