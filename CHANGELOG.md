@@ -4,6 +4,41 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/) from 0.2.0 on.
 
+## [0.4.3] - 2026-11-24
+
+The fix round of the example workflow no longer trusts its own report. Nothing in the
+kernel, the pre-flight or `PROTOCOL.md` changed. To adopt: re-copy
+`skeleton/workflow-lot.example.js` over your `.claude/workflows/lot.js` if you use it.
+
+### Changed
+
+- `skeleton/workflow-lot.example.js`: the fix agent runs without isolation and edits the
+  build worktree by absolute path, but its `staged` and `fixed` were self-reported. If its
+  edits landed in the shared tree (it forgot the `cd`, or used a relative path), the
+  report could still look clean.
+  - The fix agent now also reports `tree_before` (`git write-tree`, right after the
+    toplevel guard, before any edit) and `tree_after` (the same, after its last `git add`).
+  - The re-check agent now MEASURES: `staged_measured` (`git diff --cached --name-only`
+    in the worktree), `tree_measured` (`git write-tree`) and `wt_changed`
+    (`tree_measured` differs from `tree_before`).
+  - New pure function `fixIntegrity(fix, recheck, buildStaged)` returns a list of
+    problems: a measured staged file outside the build, an index that moved after the fix
+    agent reported, or fixes claimed while the worktree did not change (decided in code
+    from `tree_measured === tree_before`, not from the agent's `wt_changed`). A non-empty list
+    forces the final verdict to `needs_fixes` and is logged; the return value gains
+    `fix_integrity`. Still one fix round, never a second.
+  - The guard only proves that WT is a git repository root, not that it is the right
+    one; `fixIntegrity` is what catches a wrong-but-valid repo.
+- `tests/smoke.sh`: the VERSION assertion follows 0.4.3.
+
+### Notes
+
+- Checked: the pure functions were run on their cases (all OK, a stray staged file, a
+  moved tree, fixes claimed with an unchanged worktree, no fix with an unchanged
+  worktree), with a mutation of `fixIntegrity` that turns the check red, and the file
+  passes `node --check` inside a wrapper. The script itself is still not run by the test
+  suite.
+
 ## [0.4.2] - 2026-11-24
 
 One bounded fix round in the example workflow. Nothing in the kernel, the pre-flight or
