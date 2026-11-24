@@ -11,7 +11,11 @@
 //      a green test proves nothing until it has been seen to fail on the defect it guards
 //   5. a second, read-only reviewer is added when triage says so, OR when a file of the
 //      lot is hot in the graph, OR when the graph measured nothing (default = add it)
-//   6. a synthesis re-checks every finding itself and STOPS before any commit
+//   6. a synthesis re-checks every finding itself and returns a structured verdict
+//   7. ONE bounded fix round: a Sonnet agent fixes the confirmed findings in the SAME
+//      worktree, then a read-only agent re-applies each original mutation (it must now
+//      go red) and re-runs the whole test suite. Never a second round; what is left
+//      comes back as needs_fixes. The workflow STOPS before any commit.
 //
 // ADJUST 1: KIT is where the kit is installed (init.sh puts it at claude-brain/pm-kit).
 // ADJUST 2: PROFILE is your profile (init.sh writes claude-brain/pm-kit/profiles/<name>.conf).
@@ -19,19 +23,20 @@
 //           hook"; name your real commands there if you want them run verbatim.
 //
 // This file is NOT executed by the kit's test suite; only its decision logic was
-// checked by hand (see CHANGELOG 0.4.1). Treat the prompts as a starting point.
+// checked by hand (see CHANGELOG 0.4.1 and 0.4.2). Treat the prompts as a starting point.
 //
 // args = { lot: 'short name', plan: '<the PM plan, pasted as is>', files?: ['src/a.ext', ...] }
 
 export const meta = {
   name: 'lot',
-  description: 'One planned lot: triage grid, build in an isolated worktree, mutation verifier, optional second reviewer, synthesis; stops before commit',
+  description: 'One planned lot: triage grid, build in an isolated worktree, mutation verifier, optional second reviewer, synthesis, one Sonnet fix round with a targeted mutation re-check; stops before commit',
   whenToUse: 'A lot already planned by the PM agent (plan pasted in args.plan), claim taken. Useful when a mistake would be SILENT (access, derived data, a file loaded everywhere). Not for styling or a one-line fix.',
   phases: [
     { title: 'Triage', detail: 'five-question grid -> solo / mutation / full; then the graph measures whether a file of the lot is hot (second reviewer too)' },
     { title: 'Build', detail: 'isolated worktree, project linters and pre-commit hook, no commit', model: 'sonnet' },
     { title: 'Verify', detail: 'mutation always; one merged reviewer when risk or hot file' },
-    { title: 'Synthesis', detail: 're-checked findings, verdict, what the builder missed' },
+    { title: 'Synthesis', detail: 're-checked findings as structured data, verdict, what the builder missed' },
+    { title: 'Fix', detail: 'one bounded Sonnet round in the same worktree, then mutation re-check and the full test suite', model: 'sonnet' },
   ],
 }
 
@@ -78,6 +83,20 @@ function reviewPlan(decision, graph) {
   if (decision === 'solo') return hot ? { early: false, keys: ['mutation'], hot, unmeasured } : { early: true, keys: [], hot, unmeasured }
   if (decision === 'full') return { early: false, keys: ['mutation', 'review'], hot, unmeasured }
   return { early: false, keys: (hot || unmeasured) ? ['mutation', 'review'] : ['mutation'], hot, unmeasured }
+}
+
+// Pure decision: does the single fix round run? Only when a synthesis exists, it did not
+// say 'reject', and at least one finding is confirmed. 0 confirmed => no fix agent.
+function fixPlan(synthesis) {
+  const confirmed = synthesis && Array.isArray(synthesis.confirmed) ? synthesis.confirmed : []
+  const run = !!synthesis && synthesis.verdict !== 'reject' && confirmed.length > 0
+  return { run, findings: run ? confirmed : [] }
+}
+
+// Pure check: files of `after` that are absent from `before`. Empty = a subset, as expected.
+function outsideStaged(after, before) {
+  const known = new Set(Array.isArray(before) ? before : [])
+  return (Array.isArray(after) ? after : []).filter(f => !known.has(f))
 }
 
 let graph = null
@@ -194,17 +213,110 @@ Builder: ${JSON.stringify(build, null, 2)}
 Verifiers: ${JSON.stringify(reviews, null, 2)}
 
 De-duplicate. Re-verify YOURSELF each blocking / should-fix finding in ${build.worktree} (one command is enough): confirmed / refuted.
-Return, short:
-- verdict: ready to commit / needs fixes / reject;
-- confirmed findings (file:line + proposed fix), then refuted ones in one line each;
-- what the builder had missed (absent from its deviations) - that is the measure of what the workflow reported;
-- if gates_after_last_edit is false, say so first.
-End with this list for the orchestrator, unchanged:
+Return the structured result:
+- verdict: 'ready' (nothing to fix) | 'needs_fixes' | 'reject';
+- confirmed: each re-checked finding with severity (blocking | should-fix), file, line if known, claim, evidence, fix. When the finding comes from the mutation verifier, evidence MUST contain the exact mutation (sed command or diff) so it can be re-applied later;
+- refuted: one line each;
+- missed_by_builder: what the builder had missed (absent from its deviations) - that is the measure of what the workflow reported;
+- report: short text for the orchestrator: verdict, confirmed findings (file:line + proposed fix), refuted ones, what the builder missed; if gates_after_last_edit is false, say so first. End the report with this list, unchanged except steps 2 and 6:
 1. read git diff origin/main in the worktree yourself;
-2. apply the fixes, re-run tests, linters and the pre-commit hook AFTER the last edit;
+2. RESIDUAL fixes only (the automatic fix round already handled the confirmed findings - see fix / recheck in the result); re-run tests, linters and the pre-commit hook AFTER the last edit;
 3. commit the exact files in the worktree, rebase on origin/main, push (exit codes read outside pipes);
 4. deploy or apply migrations only per the project's own procedure;
-5. close the claim, then report back to the PM agent.`,
-  { label: 'synthesis', phase: 'Synthesis' })
+5. close the claim;
+6. report back to the PM agent IN THE BACKGROUND, AFTER the deploy verification result has been read (or after the push if nothing is deployed) - never during the deploy, it would record "pushed" instead of the state reached; do not end the session or commit the PM's files before its answer; then commit only the paths it names, after reading each hunk.`,
+  { label: 'synthesis', phase: 'Synthesis', schema: {
+    type: 'object',
+    properties: {
+      verdict: { type: 'string', enum: ['ready', 'needs_fixes', 'reject'] },
+      confirmed: { type: 'array', items: { type: 'object', properties: {
+        severity: { type: 'string', enum: ['blocking', 'should-fix'] },
+        file: { type: 'string' }, line: { type: 'integer' },
+        claim: { type: 'string' }, evidence: { type: 'string' }, fix: { type: 'string' },
+      }, required: ['severity', 'file', 'claim', 'evidence', 'fix'] } },
+      refuted: { type: 'array', items: { type: 'string' } },
+      missed_by_builder: { type: 'array', items: { type: 'string' } },
+      report: { type: 'string' },
+    },
+    required: ['verdict', 'confirmed', 'refuted', 'missed_by_builder', 'report'],
+  } })
 
-return { triage, graph, build, reviews, synthesis }
+// One bounded fix round. It never runs twice: whatever is left goes back as needs_fixes.
+const fp = fixPlan(synthesis)
+let fix = null
+let recheck = null
+let escalated = null
+if (!fp.run) {
+  log(`Fix: not run (${synthesis ? 'verdict ' + synthesis.verdict + ', ' + fp.findings.length + ' confirmed' : 'no synthesis'})`)
+} else {
+  phase('Fix')
+  const WT = build.worktree
+  log(`Fix: one Sonnet round on ${fp.findings.length} confirmed finding(s) in ${WT}`)
+  // No isolation here: isolation 'worktree' would create a NEW worktree. The agent works
+  // in the build worktree by absolute path, so the guard below is a hard one.
+  fix = await agent(
+    `You fix confirmed findings in the existing worktree ${WT}. Your current directory is a SHARED tree where other sessions work, so:
+- EVERY Bash command starts with cd "${WT}" && ; every Edit/Write uses an absolute path starting with ${WT}/.
+- BEFORE any edit run: cd "${WT}" && test "$(git rev-parse --show-toplevel)" = "${WT}"; echo rc=$?  If rc is not 0, edit NOTHING, set toplevel_ok=false and a non-empty error.
+- Modify only these staged files: ${JSON.stringify(build.staged)}. Create no new file.
+- Fix each confirmed finding below. AFTER your LAST edit, and not before: re-run EVERY test of this list against the candidate (exact commands): ${JSON.stringify(build.benches.map(b => b.cmd))}; run the project's linters on each touched file; stage the exact files (git add <files>, never a blanket add); run the project's pre-commit hook. Every exit code is read OUTSIDE a pipe (cmd > file 2>&1; echo "rc=$?").
+- Commit nothing, push nothing, deploy nothing, touch no shared database or remote host.
+
+CONFIRMED FINDINGS (JSON):
+${JSON.stringify(fp.findings, null, 2)}
+
+PLAN (context):
+${PLAN}`,
+    { label: 'fix', phase: 'Fix', model: 'sonnet', schema: {
+      type: 'object',
+      properties: {
+        toplevel_ok: { type: 'boolean' },
+        error: { type: 'string' },
+        fixed: { type: 'array', items: { type: 'object', properties: { file: { type: 'string' }, claim: { type: 'string' }, change: { type: 'string' } }, required: ['file', 'claim', 'change'] } },
+        not_fixed: { type: 'array', items: { type: 'object', properties: { claim: { type: 'string' }, why: { type: 'string' } }, required: ['claim', 'why'] } },
+        staged: { type: 'array', items: { type: 'string' } },
+        benches: { type: 'array', items: { type: 'object', properties: { cmd: { type: 'string' }, rc: { type: 'integer' } }, required: ['cmd', 'rc'] } },
+        lint_rc: { type: 'integer' },
+        precommit_rc: { type: 'integer' },
+        gates_after_last_edit: { type: 'boolean' },
+      },
+      required: ['toplevel_ok', 'error', 'fixed', 'not_fixed', 'staged', 'benches', 'lint_rc', 'precommit_rc', 'gates_after_last_edit'],
+    } })
+  const stray = fix ? outsideStaged(fix.staged, build.staged) : []
+  if (!fix) escalated = 'fix agent died'
+  else if (fix.error) escalated = `fix agent error: ${fix.error}`
+  else if (!fix.toplevel_ok) escalated = 'fix agent refused: git toplevel is not the build worktree'
+  else if (stray.length) escalated = `fix staged file(s) outside the build: ${stray.join(', ')}`
+  if (escalated) {
+    log(`Fix escalated, no re-check: ${escalated}`)
+  } else {
+    recheck = await agent(
+      `${COMMON}
+
+Angle: RE-CHECK of the single fix round already applied in ${WT}. Fix report: ${JSON.stringify(fix)}
+Findings that were confirmed: ${JSON.stringify(fp.findings)}
+1. For EACH finding the fix report lists as fixed: re-apply, in a COPY in your scratch directory, the original mutation taken from its evidence. It must now make the test go RED (mutation_red = true).
+2. Re-run the WHOLE test suite against the fixed candidate: a fix can regress another criterion. Everything must be green. List any regression.`,
+      { label: 'recheck', phase: 'Fix', schema: {
+        type: 'object',
+        properties: {
+          checks: { type: 'array', items: { type: 'object', properties: { claim: { type: 'string' }, mutation_red: { type: 'boolean' }, evidence: { type: 'string' } }, required: ['claim', 'mutation_red', 'evidence'] } },
+          full_suite_green: { type: 'boolean' },
+          regressions: { type: 'array', items: { type: 'string' } },
+        },
+        required: ['checks', 'full_suite_green', 'regressions'],
+      } })
+  }
+}
+
+// Final verdict: 'ready' only when the synthesis was ready with nothing confirmed, or the
+// fix round ran, nothing escalated, nothing left unfixed, every mutation red, suite green.
+let final_verdict = 'needs_fixes'
+if (synthesis && synthesis.verdict === 'reject') final_verdict = 'reject'
+else if (synthesis && synthesis.verdict === 'ready' && synthesis.confirmed.length === 0) final_verdict = 'ready'
+else if (fp.run && !escalated && fix && recheck && fix.not_fixed.length === 0 &&
+         recheck.checks.length > 0 && recheck.checks.every(c => c.mutation_red) && recheck.full_suite_green &&
+         fix.gates_after_last_edit) final_verdict = 'ready'
+log(`Final verdict: ${final_verdict}${escalated ? ' (fix escalated: ' + escalated + ')' : ''}`)
+
+return { triage, graph, build, reviews, synthesis, fix, recheck, final_verdict }
