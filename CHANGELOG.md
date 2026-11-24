@@ -4,6 +4,40 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/) from 0.2.0 on.
 
+## [0.4.2] - 2026-11-24
+
+One bounded fix round in the example workflow. Nothing in the kernel, the pre-flight or
+`PROTOCOL.md` changed. To adopt: re-copy `skeleton/workflow-lot.example.js` over your
+`.claude/workflows/lot.js` if you use it.
+
+### Changed
+
+- `skeleton/workflow-lot.example.js`: motivation. On 136 runs of the source project's lot
+  workflow, the mutation verifier found a blocking or should-fix defect in 98 % of runs,
+  and the orchestrator was fixing them by hand, serially, after the fact.
+  - The synthesis now returns structured data (`verdict` 'ready' | 'needs_fixes' |
+    'reject', `confirmed` findings with the exact mutation in `evidence`, `refuted`,
+    `missed_by_builder`, `report`).
+  - New `Fix` phase: ONE Sonnet fix round in the same worktree (no new worktree, a hard
+    guard that the git toplevel is the build worktree, only the build's staged files),
+    then a targeted mutation re-check (each original mutation must now go red) plus the
+    full test suite. Never a second round: what is left comes back as `needs_fixes`.
+    Zero confirmed findings launches no fix agent. The workflow still stops before commit.
+  - New pure functions `fixPlan(synthesis)` and `outsideStaged(after, before)`; the return
+    value gains `fix`, `recheck` and `final_verdict`.
+  - Orchestrator checklist: step 2 is residual fixes only; step 6 is the report-back to
+    the PM agent in the background, after the deploy verification result has been read
+    (or after the push if nothing is deployed), never during the deploy (it would record
+    "pushed" instead of the state reached), without ending the session or committing the
+    PM's files before its answer, then committing only the paths it names.
+- `tests/smoke.sh`: the VERSION assertion follows 0.4.2.
+
+### Notes
+
+- Checked: the pure functions `reviewPlan`, `fixPlan` and `outsideStaged` were run by hand
+  on their edge cases, and the file passes `node --check` inside a wrapper. The script
+  itself is still not run by the test suite.
+
 ## [0.4.1] - 2026-11-22
 
 An example workflow that uses the dependency graph, and one profile setting for it.
