@@ -40,6 +40,11 @@ export const meta = {
   ],
 }
 
+// Speed: prefer SMALLER lots (a few files each) and run several runs of this workflow in parallel when their
+// file lists do not overlap (distinct pending-migration names; finalize and commit them one after the other).
+// Never lighten verification to save time. Never message an agent of a run that is still going: the harness
+// starts a second copy of it that edits the same worktree. To change the plan, edit the plan file, or stop and relaunch.
+
 if (!args || !args.plan) throw new Error('args.plan is required (the PM plan, pasted as is)')
 const LOT = args.lot || 'lot'
 const PLAN = args.plan

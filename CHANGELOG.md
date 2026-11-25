@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project aims
 to follow [Semantic Versioning](https://semver.org/) from 0.2.0 on.
 
+## [0.4.4] - 2026-11-25
+
+Sequencing now asks for small lots that can run side by side. To adopt: replace the kernel
+block of your PM agent file with the new one from `pm-kit/PROTOCOL.md` (step 5 changed), and
+re-copy the header comment of `skeleton/workflow-lot.example.js` if you use it.
+
+### Changed
+
+- `pm-kit/PROTOCOL.md`, step 5 (Sequencing): cut the work into lots small enough to build and
+  verify in one short pass, give every lot the list of files it writes, so the orchestrator can
+  run in parallel the lots whose lists do not overlap; name what parallel lots must not share
+  (a file, a pending migration, a commit or release step). Speed comes from smaller lots run in
+  parallel, never from a lighter verification. Measured on the source project: build time is
+  agent reasoning, not test runtime, so a large lot is the slow part.
+- `skeleton/workflow-lot.example.js`: a header note on parallel runs, and a measured hazard —
+  messaging an agent of a run that is still going starts a second copy of it in the same
+  worktree; change the plan by editing the plan file, or stop and relaunch.
+
 ## [0.4.3] - 2026-11-24
 
 The fix round of the example workflow no longer trusts its own report. Nothing in the
